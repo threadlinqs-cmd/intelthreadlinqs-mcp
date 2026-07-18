@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "intelthreadlinqs-mcp",
+  "display_name": "Threadlinqs Intelligence",
+  "version": "7.1.0",
+  "description": "54 cyber-threat-intelligence tools — threats, SPL/KQL/Sigma detections, IOCs, actors, C2, MITRE ATT&CK. Purple tier.",
+  "long_description": "Threadlinqs Intelligence is a premium cyber-threat-intelligence MCP server. It exposes 54 tools across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE, correlations, and Purple-tier composite/aggregation intelligence — plus prompts, resources (threadlinqs:// URIs), completions, and STIX 2.1 / ATT&CK Navigator export.\n\nThis is a **Purple-tier feature (tier >= 3, Purple + Gold plans)**. The server verifies your API key at startup and refuses to run without a valid Purple/Gold key — there is no free or anonymous mode. Get a key (or start a 7-day Purple trial) at https://intel.threadlinqs.com/profile.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
+  "author": { "name": "Threadlinqs Intelligence", "email": "contact@threadlinqs.com", "url": "https://threadlinqs.com" },
+  "homepage": "https://intel.threadlinqs.com/mcp",
+  "documentation": "https://intel.threadlinqs.com/mcp",
+  "support": "https://intel.threadlinqs.com/mcp",
+  "repository": { "type": "git", "url": "git+https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp.git" },
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": ["threat-intelligence", "security", "detections", "splunk", "sigma", "kql", "ioc", "mitre-attack", "c2", "cve", "mcp"],
+  "privacy_policies": ["https://threadlinqs.com/privacy"],
+  "tools_generated": true,
+  "prompts_generated": true,
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.mjs"],
+      "env": {
+        "THREADLINQS_API_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Threadlinqs API key (tl_…)",
+      "description": "Your Purple or Gold API key from intel.threadlinqs.com → Profile → API. The MCP server is Purple-tier only (tier >= 3) and refuses to start without a valid Purple/Gold key. Stored in your OS keychain.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=18" }
+  }
+}

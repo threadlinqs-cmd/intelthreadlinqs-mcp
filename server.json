@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.threadlinqs-cmd/intelthreadlinqs-mcp",
+  "description": "Threadlinqs threat-intelligence MCP — 49 tools: threats, detections, IOCs, actors, C2, MITRE, CVEs",
+  "repository": {
+    "url": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp",
+    "source": "github"
+  },
+  "version": "7.1.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "intelthreadlinqs-mcp",
+      "version": "7.1.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Threadlinqs API key (Purple or Gold tier, tl_...) — get one at https://intel.threadlinqs.com/profile",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true,
+          "name": "THREADLINQS_API_KEY"
+        },
+        {
+          "description": "Override the API base URL (defaults to https://intel.threadlinqs.com)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "THREADLINQS_API_URL"
+        }
+      ]
+    }
+  ]
+}

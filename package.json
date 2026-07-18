@@ -1,0 +1,55 @@
+{
+  "name": "intelthreadlinqs-mcp",
+  "version": "7.1.2",
+  "mcpName": "io.github.threadlinqs-cmd/intelthreadlinqs-mcp",
+  "description": "MCP server for Threadlinqs Intelligence Platform — 49 tools across threat intel, detections, IOCs, actors, C2, MITRE chains, and Purple-tier composite intelligence",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "intelthreadlinqs-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "threat-intelligence",
+    "security",
+    "detections",
+    "splunk",
+    "sigma",
+    "kql",
+    "ioc",
+    "mitre-attack",
+    "c2"
+  ],
+  "author": "ThreatClawer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp/issues"
+  },
+  "homepage": "https://intel.threadlinqs.com/mcp",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
