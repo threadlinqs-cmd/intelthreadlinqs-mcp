@@ -6,12 +6,12 @@
     "url": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp",
     "source": "github"
   },
-  "version": "7.1.2",
+  "version": "7.1.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "intelthreadlinqs-mcp",
-      "version": "7.1.2",
+      "version": "7.1.3",
       "transport": {
         "type": "stdio"
       },

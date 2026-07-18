@@ -179,4 +179,4 @@ For the complete list of 49 tools with parameters and example invocations, see t
 
 ## License
 
-MIT © ThreatClawer / Threadlinqs Intelligence
+MIT © Threadlinqs

@@ -1,6 +1,6 @@
 {
   "name": "intelthreadlinqs-mcp",
-  "version": "7.1.2",
+  "version": "7.1.3",
   "mcpName": "io.github.threadlinqs-cmd/intelthreadlinqs-mcp",
   "description": "MCP server for Threadlinqs Intelligence Platform — 49 tools across threat intel, detections, IOCs, actors, C2, MITRE chains, and Purple-tier composite intelligence",
   "type": "module",
@@ -30,7 +30,7 @@
     "mitre-attack",
     "c2"
   ],
-  "author": "ThreatClawer",
+  "author": "Threadlinqs Team",
   "license": "MIT",
   "repository": {
     "type": "git",
