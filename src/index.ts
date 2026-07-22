@@ -1758,22 +1758,26 @@ async function main() {
       headers: { Authorization: `Bearer ${API_KEY}`, Accept: "application/json" },
       signal: AbortSignal.timeout(10000),
     });
+    // NB: startup verification NEVER exits the process — it only logs. Exiting
+    // here breaks registry introspection probes (e.g. Glama) that build the image
+    // and may inject a placeholder key to satisfy the "required" env var, then
+    // send tools/list. The real access gate is server-side per endpoint (each
+    // tool CALL 403s on an invalid/under-tier key), so a bad key at startup just
+    // warns and the catalog stays introspectable.
     if (resp.status === 401 || resp.status === 403) {
-      console.error("ERROR: THREADLINQS_API_KEY is invalid or expired. Get a new key at https://intel.threadlinqs.com/profile");
-      process.exit(1);
+      console.error("WARNING: THREADLINQS_API_KEY is invalid or expired — tool calls will fail until it is fixed. Get a new key at https://intel.threadlinqs.com/profile");
     } else if (resp.ok) {
       const me = (await resp.json().catch(() => null)) as { authenticated?: boolean; tier?: number } | null;
       if (!me || me.authenticated === false) {
-        console.error("ERROR: THREADLINQS_API_KEY did not resolve to an account. Get a valid key at https://intel.threadlinqs.com/profile");
-        process.exit(1);
+        console.error("WARNING: THREADLINQS_API_KEY did not resolve to an account — tool calls will fail. Get a valid key at https://intel.threadlinqs.com/profile");
+      } else {
+        const tier = Number(me.tier) || 0;
+        if (tier < PURPLE_MIN_TIER) {
+          console.error(`WARNING: MCP data access requires Purple or Gold (tier >= 3); your key is tier ${tier}. Under-tier tool calls will be refused. Upgrade at https://threadlinqs.com/landing.html#pricing`);
+        } else {
+          console.error(`API key validated — Purple/Gold (tier ${tier}). All 54 tools available.`);
+        }
       }
-      const tier = Number(me.tier) || 0;
-      if (tier < PURPLE_MIN_TIER) {
-        console.error(`ERROR: MCP access requires Purple or Gold (tier >= 3). Your key is tier ${tier}.`);
-        console.error("Start a 7-day Purple trial or upgrade at https://threadlinqs.com/landing.html#pricing");
-        process.exit(1);
-      }
-      console.error(`API key validated — Purple/Gold (tier ${tier}). All 54 tools available.`);
     } else {
       console.error(`WARNING: could not verify tier (HTTP ${resp.status}); continuing — server-side tier checks still apply.`);
     }
