@@ -48,7 +48,7 @@ if (API_BASE && !API_BASE.startsWith('https://') && !API_BASE.startsWith('http:/
   process.exit(1);
 }
 
-const SERVER_VERSION = "7.1.0";
+const SERVER_VERSION = "7.1.4";
 const SERVER_START = Date.now();
 
 // ---------------------------------------------------------------------------
@@ -1739,9 +1739,19 @@ async function main() {
   // (the server-side per-endpoint 403s still enforce the gate in that case).
   const PURPLE_MIN_TIER = 3;
   if (!API_KEY) {
-    console.error("ERROR: THREADLINQS_API_KEY is required. The Threadlinqs Intelligence MCP server is a Purple-tier feature (tier >= 3, $11.99/mo) — there is no free or anonymous mode.");
+    // Boot without a key so introspection (initialize / tools/list) works for
+    // registries and clients that probe the catalog before configuring auth
+    // (e.g. Glama's Docker introspection check). Tool CALLS remain gated: the
+    // request path only attaches Authorization when API_KEY is set, so a keyless
+    // call hits the API's 401/403 and returns a clean "set THREADLINQS_API_KEY"
+    // tool error. The Threadlinqs Intelligence MCP server stays a Purple-tier
+    // feature (tier >= 3, $11.99/mo) — there is no free or anonymous data access.
+    console.error("WARNING: THREADLINQS_API_KEY is not set — the server will start and expose its tool catalog, but every tool CALL will fail until a Purple/Gold key is configured.");
     console.error("Get a Purple/Gold API key (or start a 7-day Purple trial) at https://intel.threadlinqs.com/profile");
-    process.exit(1);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error(`Threadlinqs Intelligence MCP server v${SERVER_VERSION} running on stdio (no API key — introspection only)`);
+    return;
   }
   try {
     const resp = await fetch(`${API_BASE}/api/v1/auth/me`, {
