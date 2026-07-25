@@ -31,7 +31,7 @@ claude mcp add threadlinqs-intel \
   -- npx -y intelthreadlinqs-mcp
 ```
 
-The `-e THREADLINQS_API_KEY` is **required**. The Threadlinqs Intelligence MCP server is a **Purple-tier feature** — it verifies your key is Purple or Gold (tier ≥ 3) at startup and refuses to start otherwise. There is no free or anonymous mode.
+The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intelligence MCP server is a **Purple-tier feature** — it checks your key's tier at startup and warns if it is missing, invalid, or below Purple. The server still starts and exposes its tool catalog so clients and registries can introspect it, but **tool calls are gated server-side**: without a Purple or Gold key (tier ≥ 3) they return an `Access denied` error instead of data. There is no free or anonymous access to gated intelligence.
 
 ### Claude Desktop
 
@@ -94,7 +94,7 @@ Sign up at [intel.threadlinqs.com](https://intel.threadlinqs.com), verify your e
 
 ## Access — Purple tier only
 
-The MCP server is a **Purple-tier feature**: **all 49 tools require a Purple or Gold subscription (tier ≥ 3)**. The server verifies your key's tier at startup and refuses to run otherwise — there is no free or anonymous mode.
+The MCP server is a **Purple-tier feature**: **all 49 tools require a Purple or Gold subscription (tier ≥ 3)**. The server checks your key's tier at startup and warns when it is missing, invalid, or below Purple — it still starts and lists its tools so clients can introspect the catalog, but the tier is enforced server-side on every call, so gated tools return `Access denied` rather than data. There is no free or anonymous access to gated intelligence.
 
 | Tier | Price | MCP access |
 |---|---|---|
@@ -167,7 +167,7 @@ For the complete list of 49 tools with parameters and example invocations, see t
 - **Runtime:** Node ≥18
 - **SDK:** `@modelcontextprotocol/sdk@^1.26.0`
 - **Backend:** Cloudflare Workers + D1 (multi-region)
-- **Purple gate:** the server verifies the API key is Purple/Gold (tier ≥ 3) at startup and refuses to start otherwise; tool calls also enforce the tier server-side (structured 403 on lapse)
+- **Purple gate:** the server checks the API key's tier at startup and warns if it is missing, invalid, or below Purple/Gold (tier ≥ 3) — it starts regardless so the tool catalog stays introspectable; the gate itself is enforced server-side on every tool call (structured 403 on lapse or under-tier)
 
 ## Links
 
