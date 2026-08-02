@@ -1,6 +1,6 @@
 # intelthreadlinqs-mcp
 
-> MCP server for [Threadlinqs Intelligence](https://intel.threadlinqs.com) — 49 tools across threat intelligence, detections, IOCs, threat actors, MITRE attack-chains, C2 infrastructure, and Purple-tier composite intelligence. Drop-in for Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
+> MCP server for [Threadlinqs Intelligence](https://intel.threadlinqs.com) — 72 tools across threat intelligence, detections, IOCs, threat actors, MITRE attack-chains, C2 infrastructure, and Purple-tier composite intelligence. Drop-in for Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
 
 [![npm version](https://img.shields.io/npm/v/intelthreadlinqs-mcp.svg)](https://www.npmjs.com/package/intelthreadlinqs-mcp)
 [![Node](https://img.shields.io/node/v/intelthreadlinqs-mcp.svg)](https://nodejs.org/)
@@ -90,19 +90,19 @@ The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intell
 
 ## Getting an API key
 
-Sign up at [intel.threadlinqs.com](https://intel.threadlinqs.com), verify your email, and head to **Profile → API Key**. New accounts get a **7-day Purple-tier free trial** that unlocks all 49 tools.
+Sign up at [intel.threadlinqs.com](https://intel.threadlinqs.com), verify your email, and head to **Profile → API Key**. New accounts get a **7-day Purple-tier free trial** that unlocks all 72 tools.
 
 ## Access — Purple tier only
 
-The MCP server is a **Purple-tier feature**: **all 49 tools require a Purple or Gold subscription (tier ≥ 3)**. The server checks your key's tier at startup and warns when it is missing, invalid, or below Purple — it still starts and lists its tools so clients can introspect the catalog, but the tier is enforced server-side on every call, so gated tools return `Access denied` rather than data. There is no free or anonymous access to gated intelligence.
+The MCP server is a **Purple-tier feature**: **all 72 tools require a Purple or Gold subscription (tier ≥ 3)**. The server checks your key's tier at startup and warns when it is missing, invalid, or below Purple — it still starts and lists its tools so clients can introspect the catalog, but the tier is enforced server-side on every call, so gated tools return `Access denied` rather than data. There is no free or anonymous access to gated intelligence.
 
 | Tier | Price | MCP access |
 |---|---|---|
-| **Purple** | $11.99/mo | ✅ All 49 tools |
-| **Gold** | Custom | ✅ All 49 tools (enterprise — contact sales) |
+| **Purple** | $11.99/mo | ✅ All 72 tools |
+| **Gold** | Custom | ✅ All 72 tools (enterprise — contact sales) |
 | Lower tiers | — | ❌ No MCP access (the public website + REST API keep their own free Blue tier) |
 
-New accounts get a **7-day Purple-tier free trial** that unlocks all 49 tools. Tool calls also enforce the tier server-side and return a structured 403 if your subscription lapses.
+New accounts get a **7-day Purple-tier free trial** that unlocks all 72 tools. Tool calls also enforce the tier server-side and return a structured 403 if your subscription lapses.
 
 ## v4.3 flagship tools (Purple tier)
 
@@ -158,7 +158,7 @@ The composite tools are the reason most people upgrade to Purple — each one re
 
 ## Full tool catalog
 
-For the complete list of 49 tools with parameters and example invocations, see the [interactive MCP documentation page](https://intel.threadlinqs.com/mcp).
+For the complete list of 72 tools with parameters and example invocations, see the [interactive MCP documentation page](https://intel.threadlinqs.com/mcp).
 
 ## Architecture
 

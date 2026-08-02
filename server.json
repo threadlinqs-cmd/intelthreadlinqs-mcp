@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.threadlinqs/intelthreadlinqs-mcp",
-  "description": "Threadlinqs threat-intelligence MCP — 49 tools: threats, detections, IOCs, actors, C2, MITRE, CVEs",
+  "description": "Threadlinqs threat-intelligence MCP — 72 tools: threats, detections, IOCs, actors, C2, MITRE, CVEs, correlations",
   "repository": {
     "url": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp",
     "source": "github"
   },
-  "version": "7.1.4",
+  "version": "8.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "intelthreadlinqs-mcp",
-      "version": "7.1.4",
+      "version": "8.0.0",
       "transport": {
         "type": "stdio"
       },

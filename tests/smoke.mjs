@@ -3,8 +3,11 @@
  * MCP stdio smoke + contract test.
  *
  * Spawns `node dist/index.js`, speaks JSON-RPC over stdio, and for EVERY tool:
- *   - asserts tools/list advertises 49 tools, each with inputSchema + title +
- *     readOnlyHint, and that declared outputSchemas are objects;
+ *   - asserts tools/list is non-empty and matches the server's own published catalog
+ *     (/mcp/catalog.json), with each tool carrying inputSchema + title + readOnlyHint
+ *     and any declared outputSchema being an object. The count is NOT hardcoded: this
+ *     package is a thin proxy and the registry lives in the worker, so pinning a number
+ *     here just goes stale (it said 49 while the server shipped 54, then 72);
  *   - calls tools/call with a known-good fixture and classifies the result:
  *       OK     — returned data (and structuredContent when an outputSchema is
  *                declared); free-tier tools must reach this.
@@ -119,6 +122,10 @@ const argsFor = (tool, schema) => {
 let FAILS = 0;
 const rows = [];
 const rec = (name, status, note) => { rows.push({ name, status, note: note || "" }); if (status === "FAIL") FAILS++; };
+// The remote rate-limits MCP at 120 requests / 60s per key/IP. This harness fires ~76
+// calls, so back-to-back runs trip it. A throttled call proves nothing about the tool,
+// so it is reported as LIMITED rather than FAIL — visible, but not a false defect.
+const RATE_RE = /rate limit|Retry in \d+s|429/i;
 
 (async () => {
   const c = makeClient();
@@ -128,7 +135,17 @@ const rec = (name, status, note) => { rows.push({ name, status, note: note || ""
   const list = await c.call("tools/list", {});
   const tools = list.result?.tools || [];
   console.log(`\n# tools/list — ${tools.length} tools (key ${HAS_KEY ? "PRESENT" : "absent → gated tools expected to return tier errors"})\n`);
-  if (tools.length !== 49) rec("tools/list count", "FAIL", `expected 49, got ${tools.length}`);
+  // The registry lives in the worker, so compare against what the server itself
+  // publishes rather than a number baked in here. This also catches the real failure
+  // mode for a proxy: serving a stale or truncated catalog.
+  if (!tools.length) rec("tools/list non-empty", "FAIL", "tools/list returned nothing");
+  try {
+    const base = process.env.THREADLINQS_API_URL || "https://intel.threadlinqs.com";
+    const pub = await fetch(`${base}/mcp/catalog.json`).then((r) => r.json());
+    if (Array.isArray(pub?.tools) && pub.tools.length !== tools.length) {
+      rec("tools/list matches published catalog", "FAIL", `catalog ${pub.tools.length}, tools/list ${tools.length}`);
+    }
+  } catch { /* offline — the non-empty check above still applies */ }
   const schemaByName = {};
   for (const t of tools) {
     schemaByName[t.name] = t.inputSchema;
@@ -151,7 +168,8 @@ const rec = (name, status, note) => { rows.push({ name, status, note: note || ""
     if (!r || !Array.isArray(r.content) || r.content.length === 0) { rec(t.name, "FAIL", "no content"); continue; }
     const text = r.content.map((c) => c.text || "").join(" ");
     if (r.isError) {
-      if (TIER_RE.test(text)) rec(t.name, "GATED", "tier/permission (expected w/o key)");
+      if (RATE_RE.test(text)) rec(t.name, "LIMITED", "rate-limited — rerun in 60s");
+      else if (TIER_RE.test(text)) rec(t.name, "GATED", "tier/permission (expected w/o key)");
       else if (/not found/i.test(text)) rec(t.name, "OK", "clean not-found");
       else rec(t.name, "FAIL", "unexpected error: " + text.slice(0, 80));
       continue;
@@ -169,23 +187,37 @@ const rec = (name, status, note) => { rows.push({ name, status, note: note || ""
     const res = await c.call("tools/call", { name, arguments: args });
     const r = res.result || {};
     const text = (r.content || []).map((c) => c.text || "").join(" ");
+    if (RATE_RE.test(text)) { rec(`neg:${label}`, "LIMITED", "rate-limited — rerun in 60s"); return; }
     const okk = check(r, text);
     rec(`neg:${label}`, okk ? "OK" : "FAIL", okk ? "" : `got isError=${!!r.isError} text=${text.slice(0, 60)}`);
   };
-  await neg("empty threat_id", "get_threat", { threat_id: "" }, (r, t) => r.isError && /required|invalid/i.test(t));
-  await neg("limit clamp", "get_recent_threats", { limit: 99999 }, (r) => !r.isError); // clamps, no error
-  await neg("bad export format", "export_detection", { detection_id: "x", format: "bogus" }, (r, t) => r.isError && /invalid format|use one of/i.test(t));
-  await neg("unknown tool", "no_such_tool_xyz", {}, (r, t) => r.isError && /unknown tool/i.test(t));
+  // Argument validation that still happens CLIENT-side (inside the tool's build())
+  // is assertable without a key — a throw there never reaches the network.
+  await neg("empty threat_id", "get_threat", { threat_id: "" }, (r, t) => r.isError && /required|invalid|missing/i.test(t));
+
+  // Everything below is validated SERVER-side, and the server checks auth before it
+  // checks anything else — so without a key these all return the same tier error and
+  // the assertion would be meaningless. Skipped rather than silently weakened.
+  if (!HAS_KEY) {
+    for (const l of ["limit clamp", "bad export format", "unknown tool"]) {
+      rec(`neg:${l}`, "GATED", "server-side validation — needs THREADLINQS_API_KEY");
+    }
+  } else {
+    await neg("limit clamp", "get_recent_threats", { limit: 99999 }, (r) => !r.isError); // clamps, no error
+    await neg("bad export format", "export_detection", { detection_id: "x", format: "bogus" }, (r, t) => r.isError && /invalid format|use one of/i.test(t));
+    await neg("unknown tool", "no_such_tool_xyz", {}, (r, t) => r.isError && /unknown tool/i.test(t));
+  }
 
   c.kill();
 
   // ---- report ----
   const pad = (s, n) => (s + " ".repeat(n)).slice(0, n);
-  const order = { FAIL: 0, GATED: 1, OK: 2 };
+  const order = { FAIL: 0, LIMITED: 1, GATED: 2, OK: 3 };
   rows.sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
   console.log(rows.map((r) => `  ${pad(r.status, 6)} ${pad(r.name, 30)} ${r.note}`).join("\n"));
   const n = (s) => rows.filter((r) => r.status === s).length;
-  console.log(`\n# summary: OK=${n("OK")}  GATED=${n("GATED")}  FAIL=${n("FAIL")}  (total ${rows.length})`);
+  console.log(`\n# summary: OK=${n("OK")}  GATED=${n("GATED")}  LIMITED=${n("LIMITED")}  FAIL=${n("FAIL")}  (total ${rows.length})`);
+  if (n("LIMITED")) console.log(`  note: ${n("LIMITED")} call(s) were rate-limited (120/60s per key/IP) — rerun in a minute for a clean pass.`);
   console.log(FAILS === 0 ? "\n✅ SMOKE PASS — no unexpected failures\n" : `\n❌ SMOKE FAIL — ${FAILS} unexpected failure(s)\n`);
   process.exit(FAILS === 0 ? 0 : 1);
 })().catch((e) => { console.error("harness error:", e); process.exit(2); });
