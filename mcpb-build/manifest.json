@@ -3,18 +3,39 @@
   "manifest_version": "0.4",
   "name": "intelthreadlinqs-mcp",
   "display_name": "Threadlinqs Intelligence",
-  "version": "8.0.0",
-  "description": "54 cyber-threat-intelligence tools — threats, SPL/KQL/Sigma detections, IOCs, actors, C2, MITRE ATT&CK. Purple tier.",
-  "long_description": "Threadlinqs Intelligence is a premium cyber-threat-intelligence MCP server. It exposes 72 tools across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE, correlations, and Purple-tier composite/aggregation intelligence — plus prompts, resources (threadlinqs:// URIs), completions, and STIX 2.1 / ATT&CK Navigator export.\n\nThis is a **Purple-tier feature (tier >= 3, Purple + Gold plans)**. The server starts without a key so clients and registries can introspect the catalog, but every tool CALL is gated server-side and requires a valid Purple/Gold key — there is no free or anonymous access to intelligence data. Get a key (or start a 7-day Purple trial) at https://intel.threadlinqs.com/profile.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
-  "author": { "name": "Threadlinqs Intelligence", "email": "contact@threadlinqs.com", "url": "https://threadlinqs.com" },
+  "version": "8.1.0",
+  "description": "73 cyber-threat-intelligence tools — threats, SPL/KQL/Sigma detections, IOCs, actors, C2, MITRE ATT&CK. Purple tier.",
+  "long_description": "Threadlinqs Intelligence is a premium cyber-threat-intelligence MCP server. It exposes 73 tools across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE, correlations, and Purple-tier composite/aggregation intelligence — plus prompts, resources (threadlinqs:// URIs), completions, and STIX 2.1 / ATT&CK Navigator export.\n\nThis is a **Purple-tier feature (tier >= 3, Purple + Gold plans)**. The server starts without a key so clients and registries can introspect the catalog, but every tool CALL is gated server-side and requires a valid Purple/Gold key — there is no free or anonymous access to intelligence data. Get a key (or start a 7-day Purple trial) at https://intel.threadlinqs.com/profile.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
+  "author": {
+    "name": "Threadlinqs Intelligence",
+    "email": "contact@threadlinqs.com",
+    "url": "https://threadlinqs.com"
+  },
   "homepage": "https://intel.threadlinqs.com/mcp",
   "documentation": "https://intel.threadlinqs.com/mcp",
   "support": "https://intel.threadlinqs.com/mcp",
-  "repository": { "type": "git", "url": "git+https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp.git"
+  },
   "license": "MIT",
   "icon": "icon.png",
-  "keywords": ["threat-intelligence", "security", "detections", "splunk", "sigma", "kql", "ioc", "mitre-attack", "c2", "cve", "mcp"],
-  "privacy_policies": ["https://threadlinqs.com/privacy"],
+  "keywords": [
+    "threat-intelligence",
+    "security",
+    "detections",
+    "splunk",
+    "sigma",
+    "kql",
+    "ioc",
+    "mitre-attack",
+    "c2",
+    "cve",
+    "mcp"
+  ],
+  "privacy_policies": [
+    "https://threadlinqs.com/privacy"
+  ],
   "tools_generated": true,
   "prompts_generated": true,
   "server": {
@@ -22,7 +43,9 @@
     "entry_point": "server/index.mjs",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/server/index.mjs"],
+      "args": [
+        "${__dirname}/server/index.mjs"
+      ],
       "env": {
         "THREADLINQS_API_KEY": "${user_config.api_key}"
       }
@@ -39,7 +62,13 @@
   },
   "compatibility": {
     "claude_desktop": ">=0.10.0",
-    "platforms": ["darwin", "win32", "linux"],
-    "runtimes": { "node": ">=18" }
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18"
+    }
   }
 }

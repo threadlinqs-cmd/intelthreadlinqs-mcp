@@ -44,6 +44,7 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { CATALOG_SNAPSHOT, type CatalogSnapshot } from "./catalog-snapshot.js";
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -56,7 +57,7 @@ if (API_BASE && !API_BASE.startsWith("https://") && !API_BASE.startsWith("http:/
   process.exit(1);
 }
 
-const SERVER_VERSION = "8.0.0";
+const SERVER_VERSION = "8.1.0";
 const MCP_ENDPOINT = `${API_BASE}/mcp`;
 const CATALOG_ENDPOINT = `${API_BASE}/mcp/catalog.json`;
 
@@ -278,9 +279,22 @@ async function publicCatalog(): Promise<CatalogShape> {
 }
 
 /**
- * Prefer the authenticated live view (authoritative, and the only one that can ever
- * carry per-user variation); fall back to the public catalog on any failure so the
- * catalog is never empty just because a key is missing, expired or under-tier.
+ * Three tiers, most authoritative first:
+ *
+ *   1. authenticated `tools/list` — live, and the only view that can ever carry
+ *      per-user variation
+ *   2. public `/mcp/catalog.json` — identical projection, no key required
+ *   3. CATALOG_SNAPSHOT — bundled in this package, needs no network at all
+ *
+ * Tier 3 exists because tiers 1 and 2 both require egress to the platform. A
+ * registry scanner that runs this package in a network-isolated sandbox used to
+ * get an empty array — not an error, an EMPTY LIST, which is indistinguishable
+ * from a server that genuinely exposes no tools. That is why Glama indexed this
+ * server with zero tools. Returning a stale-but-real catalog is strictly better
+ * than silently claiming to have nothing.
+ *
+ * The snapshot is regenerated from the deployed worker (`npm run sync:catalog`),
+ * so it can lag a deploy but can never invent a tool that never existed.
  */
 async function listFromRemoteOrCatalog<K extends keyof CatalogShape>(
   method: string,
@@ -297,10 +311,13 @@ async function listFromRemoteOrCatalog<K extends keyof CatalogShape>(
   }
   try {
     const c = await publicCatalog();
-    return (c[catalogKey] as unknown[]) || [];
+    const live = c[catalogKey] as unknown[] | undefined;
+    if (Array.isArray(live) && live.length > 0) return live;
   } catch {
-    return [];
+    /* fall through to the bundled snapshot */
   }
+  const snap = CATALOG_SNAPSHOT[catalogKey as keyof CatalogSnapshot];
+  return Array.isArray(snap) ? snap : [];
 }
 
 // ---------------------------------------------------------------------------

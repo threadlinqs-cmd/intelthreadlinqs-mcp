@@ -1,8 +1,8 @@
 {
   "name": "intelthreadlinqs-mcp",
-  "version": "8.0.0",
+  "version": "8.1.1",
   "mcpName": "com.threadlinqs/intelthreadlinqs-mcp",
-  "description": "MCP server for Threadlinqs Intelligence Platform — 73 tools, 7 prompts and 14 resources across threat intel, detections, IOCs, actors, C2, MITRE chains, correlations and Purple-tier composite intelligence",
+  "description": "MCP server for Threadlinqs Intelligence Platform — 73 tools, 25 prompts and 14 resources across threat intel, detections, IOCs, actors, C2, MITRE chains, correlations and Purple-tier composite intelligence",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -15,7 +15,11 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "prepublishOnly": "npm run build"
+    "sync:catalog": "node scripts/sync-catalog.mjs",
+    "test:catalog": "node tests/catalog-snapshot.test.mjs",
+    "prepublishOnly": "npm run build && npm run build:skill && npm run test:catalog && npm run test:skill",
+    "build:skill": "node scripts/build-skill.mjs",
+    "test:skill": "node tests/skill-integrity.test.mjs"
   },
   "keywords": [
     "mcp",

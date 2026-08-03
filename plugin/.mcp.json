@@ -2,7 +2,7 @@
   "mcpServers": {
     "threadlinqs-intelligence": {
       "command": "npx",
-      "args": ["-y", "intelthreadlinqs-mcp@7.0.0"],
+      "args": ["-y", "intelthreadlinqs-mcp@latest"],
       "env": {
         "THREADLINQS_API_KEY": "${THREADLINQS_API_KEY}"
       }
