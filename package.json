@@ -2,7 +2,7 @@
   "name": "intelthreadlinqs-mcp",
   "version": "8.0.0",
   "mcpName": "com.threadlinqs/intelthreadlinqs-mcp",
-  "description": "MCP server for Threadlinqs Intelligence Platform — 72 tools, 7 prompts and 6 resources across threat intel, detections, IOCs, actors, C2, MITRE chains, correlations and Purple-tier composite intelligence",
+  "description": "MCP server for Threadlinqs Intelligence Platform — 73 tools, 7 prompts and 14 resources across threat intel, detections, IOCs, actors, C2, MITRE chains, correlations and Purple-tier composite intelligence",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
