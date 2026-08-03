@@ -12,7 +12,8 @@
  *
  * Hand-authored (and left alone by this script): SKILL.md and every other references/*.md.
  *
- * OUTPUTS (all under skill/dist/, gitignored except skill-files.js):
+ * OUTPUTS (all under skill/dist/, all git-tracked — skill-files.js because the worker
+ * imports it, the other two because they are the artifacts users actually download):
  *   skill.md                      flat single-file skill — served at /mcp/skill.md
  *   intelthreadlinqs-mcp-skill.zip  SKILL.md + references/ — for Claude Desktop / API upload
  *   skill-files.js                the same file map as an ES module, imported by _worker.js

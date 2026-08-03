@@ -3,9 +3,9 @@
   "manifest_version": "0.4",
   "name": "intelthreadlinqs-mcp",
   "display_name": "Threadlinqs Intelligence",
-  "version": "8.1.0",
+  "version": "8.1.1",
   "description": "73 cyber-threat-intelligence tools — threats, SPL/KQL/Sigma detections, IOCs, actors, C2, MITRE ATT&CK. Purple tier.",
-  "long_description": "Threadlinqs Intelligence is a premium cyber-threat-intelligence MCP server. It exposes 73 tools across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE, correlations, and Purple-tier composite/aggregation intelligence — plus prompts, resources (threadlinqs:// URIs), completions, and STIX 2.1 / ATT&CK Navigator export.\n\nThis is a **Purple-tier feature (tier >= 3, Purple + Gold plans)**. The server starts without a key so clients and registries can introspect the catalog, but every tool CALL is gated server-side and requires a valid Purple/Gold key — there is no free or anonymous access to intelligence data. Get a key (or start a 7-day Purple trial) at https://intel.threadlinqs.com/profile.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
+  "long_description": "Threadlinqs Intelligence is a premium cyber-threat-intelligence MCP server. It exposes 73 tools across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE, correlations, and Purple-tier composite/aggregation intelligence — plus prompts, resources (threadlinqs:// URIs), completions, and STIX 2.1 / ATT&CK Navigator export.\n\nThis is a **Purple-tier feature (tier >= 3, Purple + Gold plans)**. The server starts without a key so clients and registries can introspect the catalog, but every tool CALL is gated server-side and requires a valid Purple/Gold key — there is no free or anonymous access to intelligence data. Get a key at https://intel.threadlinqs.com/profile. Note that signing up alone lands you on Blue (tier 1) — a 7-day Purple trial is offered at checkout on the pricing page, not on signup.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
   "author": {
     "name": "Threadlinqs Intelligence",
     "email": "contact@threadlinqs.com",
@@ -55,7 +55,7 @@
     "api_key": {
       "type": "string",
       "title": "Threadlinqs API key (tl_…)",
-      "description": "Your Purple or Gold API key from intel.threadlinqs.com → Profile → API. The MCP server is Purple-tier only (tier >= 3) and refuses to start without a valid Purple/Gold key. Stored in your OS keychain.",
+      "description": "Your Purple or Gold API key from intel.threadlinqs.com → Profile → API. The MCP server is Purple-tier only (tier >= 3). It starts without a key so clients and registries can introspect the tool catalog, but every tool CALL is gated and returns an under-tier error until a valid Purple/Gold key is set. Stored in your OS keychain.",
       "sensitive": true,
       "required": true
     }

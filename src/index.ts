@@ -57,7 +57,7 @@ if (API_BASE && !API_BASE.startsWith("https://") && !API_BASE.startsWith("http:/
   process.exit(1);
 }
 
-const SERVER_VERSION = "8.1.0";
+const SERVER_VERSION = "8.1.1";
 const MCP_ENDPOINT = `${API_BASE}/mcp`;
 const CATALOG_ENDPOINT = `${API_BASE}/mcp/catalog.json`;
 
@@ -391,7 +391,7 @@ async function main() {
     console.error(
       "WARNING: THREADLINQS_API_KEY is not set — the server will start and expose its tool catalog, but every tool CALL will fail until a Purple/Gold key is configured.",
     );
-    console.error("Get a Purple/Gold API key (or start a trial) at https://intel.threadlinqs.com/profile");
+    console.error("Get a Purple/Gold key at https://intel.threadlinqs.com/profile — signing up alone lands on Blue (tier 1); the 7-day Purple trial is offered at checkout.");
     await server.connect(transport);
     console.error(`Threadlinqs Intelligence MCP server v${SERVER_VERSION} on stdio (no API key — introspection only)`);
     return;
