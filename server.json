@@ -6,12 +6,12 @@
     "url": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp",
     "source": "github"
   },
-  "version": "8.1.0",
+  "version": "8.1.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "intelthreadlinqs-mcp",
-      "version": "8.1.0",
+      "version": "8.1.1",
       "transport": {
         "type": "stdio"
       },
