@@ -5,7 +5,7 @@
 // exists and for the release ordering that keeps it honest.
 //
 // Source : https://intel.threadlinqs.com/mcp/catalog.json
-// Counts : 73 tools, 25 prompts, 14 resources, 3 resource templates
+// Counts : 81 tools, 25 prompts, 14 resources, 3 resource templates
 
 export interface CatalogSnapshot {
   tools: unknown[];
@@ -406,13 +406,21 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_threat",
       "title": "Get Threat",
-      "description": "Get the full detail for a single threat by its ID (e.g. TL-2026-0042): overview, MITRE techniques, IOCs, detections, timeline, and tags. For that threat's malware families, tools, targeted sectors/regions, affected OS and campaigns, call get_threat_enrichment.",
+      "description": "Get the detail for a single threat by its ID (e.g. TL-2026-0042): overview, attribution, MITRE techniques, IOCs, the detection roster, timeline, targets and tags. RETRIEVABLE IN PARTS — pass `sections` to choose what comes back; the response echoes `_sections` telling you what was returned and what was omitted. By default detection RULE BODIES (SPL/KQL/Sigma) are omitted — they are ~40% of a heavy dossier and have dedicated tools (export_detection / get_detection_detail) — and `description` is trimmed to 1500 chars with `description_chars` disclosing the true length. Pass sections=\"all\" and max_description=-1 for the complete record. For malware families, tools, sectors/regions, OS and campaigns, call get_threat_enrichment.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
             "description": "Threat ID (e.g. TL-2026-0042)"
+          },
+          "sections": {
+            "type": "string",
+            "description": "CSV of sections to return. Any of: overview, attribution, mitre, iocs, detections (WITH rule bodies), detections_meta (roster only, the default), timeline, tags, targets, remediation, references, similar, updates, osint, flow, entities — or \"all\", or \"row\" (exclusive: a ~500-byte identity row plus section counts). Default: overview,attribution,mitre,iocs,detections_meta,timeline,tags,targets,similar,flow,osint"
+          },
+          "max_description": {
+            "type": "number",
+            "description": "Char budget for the narrative description. Default 1500; 0 drops it; -1 returns it whole."
           }
         },
         "required": [
@@ -565,6 +573,48 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "null"
             ],
             "description": "Community-OSINT summary; null below Red tier or when unscanned."
+          },
+          "description_chars": {
+            "type": "integer",
+            "description": "True length of description when it was trimmed to max_description."
+          },
+          "description_truncated": {
+            "type": "boolean"
+          },
+          "_sections": {
+            "type": "object",
+            "properties": {
+              "returned": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Sections present in THIS response."
+                }
+              },
+              "omitted": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Sections deliberately left out — re-call with sections=<name> to fetch them."
+                }
+              },
+              "available": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ignored_unknown": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           }
         },
         "required": [
@@ -941,13 +991,25 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_mitre_technique",
       "title": "MITRE Technique",
-      "description": "Get details for a specific MITRE ATT&CK technique by ID (e.g. T1059 or T1059.001).",
+      "description": "Get details for a specific MITRE ATT&CK technique by ID (e.g. T1059 or T1059.001): authoritative name, tactics, matrix, revocation status, mitigations, detection data sources, and the corpus threats using it. The threat list is paged — a heavily-used technique attaches hundreds of threats, so pass include_threats=false for the definition alone (a few KB), or limit/offset to page. threat_count always reports the true total.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "technique_id": {
             "type": "string",
             "description": "Technique ID (e.g. T1059 or T1059.001)"
+          },
+          "include_threats": {
+            "type": "boolean",
+            "description": "Set false to return the technique definition WITHOUT the threat list (default true). Use this when you only need the name/tactic/mitigations."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max threats to return (default 50, max 500)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Threat-list row offset for paging (default 0)"
           }
         },
         "required": [
@@ -974,6 +1036,35 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             ]
           },
           "tactic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tactics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "matrix": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "revoked_by": {
+            "type": "string",
+            "description": "Successor technique id when this one was retired — query that id instead."
+          },
+          "deprecated": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "description": "'attack_catalog' (authoritative) | 'threat_mitre_fallback' | 'unknown'."
+          },
+          "parent_technique": {
             "type": [
               "string",
               "null"
@@ -1018,6 +1109,26 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               },
               "additionalProperties": true
             }
+          },
+          "threat_count": {
+            "type": "integer",
+            "description": "TOTAL threats using this technique — compare against threats_returned to see whether the list is a page."
+          },
+          "threats_returned": {
+            "type": "integer"
+          },
+          "threats_offset": {
+            "type": "integer"
+          },
+          "threats_has_more": {
+            "type": "boolean"
+          },
+          "threats_omitted": {
+            "type": "boolean",
+            "description": "Present and true when include_threats=false suppressed the list."
+          },
+          "detail_hint": {
+            "type": "string"
           }
         },
         "required": [
@@ -1029,7 +1140,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_threat_enrichment",
       "title": "Threat Enrichment",
-      "description": "Reference-grounded enrichment for one threat by ID: the malware families and tools used, targeted sectors/regions, affected operating systems, named campaigns, AI/ML (ATLAS) techniques, and per-technique mitigations + detection data sources. Complements get_threat (overview/MITRE/IOCs/detections) — call this for the \"what malware/tools were used and who was targeted\" view.",
+      "description": "Reference-grounded enrichment for one threat by ID: the malware families and tools used, targeted sectors/regions, affected operating systems, named campaigns, AI/ML (ATLAS) techniques, and per-technique mitigations + detection data sources. Complements get_threat (overview/MITRE/IOCs/detections) — call this for the \"what malware/tools were used and who was targeted\" view. Read `coverage` before acting on an empty array: grounded = the normalised association tables, threat_record = fell back to the threat's own target_sectors/target_regions, unmapped = NOT MAPPED, which is not the same as not targeted.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1117,6 +1228,38 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "items": {
               "type": "string"
             }
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "malware": {
+                "type": "string"
+              },
+              "tools": {
+                "type": "string"
+              },
+              "sectors": {
+                "type": "string",
+                "description": "grounded | threat_record | unmapped"
+              },
+              "regions": {
+                "type": "string",
+                "description": "grounded | threat_record | unmapped"
+              },
+              "operating_systems": {
+                "type": "string"
+              },
+              "campaigns": {
+                "type": "string"
+              },
+              "atlas": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           }
         },
         "required": [
@@ -1169,8 +1312,34 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "threat_count": {
                 "type": "integer"
               },
+              "threat_count_is_floor": {
+                "type": "boolean",
+                "description": "True when the membership fetch saturated, so threat_count under-counts."
+              },
               "actor_count": {
+                "type": "integer",
+                "description": "TRUE distinct-actor prevalence, uncapped. The actors[] array is clipped to 20 — compare with actors_returned."
+              },
+              "actors_returned": {
                 "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "membership": {
+            "type": "object",
+            "properties": {
+              "grounded": {
+                "type": "integer"
+              },
+              "title_match": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "note": {
+                "type": "string"
               }
             },
             "additionalProperties": true
@@ -1185,6 +1354,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 },
                 "title": {
                   "type": "string"
+                },
+                "matched_via": {
+                  "type": "string",
+                  "description": "campaigns only: grounded | title | grounded+title"
                 }
               },
               "additionalProperties": true
@@ -1230,7 +1403,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_tool_intelligence",
       "title": "Tool Intelligence",
-      "description": "Pivot on an offensive tool / utility / RMM / LOLBin by name (e.g. \"Cobalt Strike\", \"Mimikatz\", \"AnyDesk\", \"PsExec\"). Returns the canonical tool + class, prevalence, the threats and actors using it, and its most-common ATT&CK techniques.",
+      "description": "Pivot on an offensive tool / utility / RMM / LOLBin by name (e.g. \"Cobalt Strike\", \"Mimikatz\", \"AnyDesk\", \"PsExec\"). Returns the canonical tool + class, prevalence, the threats and actors using it, and its most-common ATT&CK techniques. prevalence.actor_count is the TRUE distinct-actor total; the actors[] array is clipped to the top 20 (see prevalence.actors_returned) — do not read its length as the population.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1271,8 +1444,34 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "threat_count": {
                 "type": "integer"
               },
+              "threat_count_is_floor": {
+                "type": "boolean",
+                "description": "True when the membership fetch saturated, so threat_count under-counts."
+              },
               "actor_count": {
+                "type": "integer",
+                "description": "TRUE distinct-actor prevalence, uncapped. The actors[] array is clipped to 20 — compare with actors_returned."
+              },
+              "actors_returned": {
                 "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "membership": {
+            "type": "object",
+            "properties": {
+              "grounded": {
+                "type": "integer"
+              },
+              "title_match": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "note": {
+                "type": "string"
               }
             },
             "additionalProperties": true
@@ -1287,6 +1486,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 },
                 "title": {
                   "type": "string"
+                },
+                "matched_via": {
+                  "type": "string",
+                  "description": "campaigns only: grounded | title | grounded+title"
                 }
               },
               "additionalProperties": true
@@ -1332,7 +1535,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_campaign_intelligence",
       "title": "Campaign Intelligence",
-      "description": "Pivot on a named campaign / operation by name (e.g. \"Snowflake campaign\", \"ClickFix\"). Returns the threats in the campaign, the actors involved, prevalence, and common ATT&CK techniques.",
+      "description": "Pivot on a named campaign / operation by name (e.g. \"Snowflake campaign\", \"ClickFix\"). Returns the threats in the campaign, the actors involved, prevalence, and common ATT&CK techniques. Membership is the UNION of the curated threat_campaign_refs table and threats whose own TITLE names the campaign, because the curated table is thin (ClickFix: 7 curated rows against 57 threats that name it). Each threat carries matched_via (grounded | title | grounded+title) and the response carries a `membership` breakdown — neither source is complete, so treat `title` rows as leads and check them before calling them members.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1373,8 +1576,34 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "threat_count": {
                 "type": "integer"
               },
+              "threat_count_is_floor": {
+                "type": "boolean",
+                "description": "True when the membership fetch saturated, so threat_count under-counts."
+              },
               "actor_count": {
+                "type": "integer",
+                "description": "TRUE distinct-actor prevalence, uncapped. The actors[] array is clipped to 20 — compare with actors_returned."
+              },
+              "actors_returned": {
                 "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "membership": {
+            "type": "object",
+            "properties": {
+              "grounded": {
+                "type": "integer"
+              },
+              "title_match": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "note": {
+                "type": "string"
               }
             },
             "additionalProperties": true
@@ -1389,6 +1618,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 },
                 "title": {
                   "type": "string"
+                },
+                "matched_via": {
+                  "type": "string",
+                  "description": "campaigns only: grounded | title | grounded+title"
                 }
               },
               "additionalProperties": true
@@ -1491,7 +1724,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_actor",
       "title": "Get Actor Profile",
-      "description": "Get a lean threat-actor profile by name or alias: actor metadata, attribution counts, attributed-threat summary rows, MITRE tactic rollup + technique ids, IOC category counts (no raw values), CVE/CWE/tool summaries, and relationships. For heavy detail use the follow-up tools: get_threat(id) for a full threat, search_detections / get_detection_detail for detection bodies, search_iocs for IOC values, get_infrastructure_pivots for shared infrastructure.",
+      "description": "Get a lean threat-actor profile by name or alias: actor metadata, attribution counts, attributed-threat summary rows, MITRE tactic rollup + technique ids, IOC category counts (no raw values), CVE/CWE/tool summaries, and relationships. Tactic keys are canonicalised (the corpus writes both \"Credential Access\" and \"credential-access\") and the rollup counts DISTINCT TECHNIQUES per tactic; mitre.technique_ids is capped at 60 against mitre.techniques_total. relationships splits into shared_infra / shared_techniques / shared_tooling with the type re-derived from the value, because corr_attribution types tool names as hashes. An empty actor_relationships means UNRECORDED, not unrelated — see actor_relationships_coverage. For heavy detail use the follow-up tools: get_threat(id) for a full threat, search_detections / get_detection_detail for detection bodies, search_iocs for IOC values, get_infrastructure_pivots for shared infrastructure.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1580,6 +1813,16 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 "type": "object",
                 "properties": {},
                 "additionalProperties": true
+              },
+              "techniques_total": {
+                "type": "integer",
+                "description": "Distinct techniques for this actor. technique_ids is capped at 60 — compare the two before reading it as the whole footprint."
+              },
+              "techniques_returned": {
+                "type": "integer"
+              },
+              "truncation_note": {
+                "type": "string"
               }
             },
             "additionalProperties": true
@@ -1621,8 +1864,40 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "relationships": {
             "type": "object",
-            "properties": {},
+            "properties": {
+              "shared_infra": {
+                "type": "array",
+                "items": {}
+              },
+              "shared_techniques": {
+                "type": "array",
+                "items": {}
+              },
+              "shared_tooling": {
+                "type": "array",
+                "items": {}
+              }
+            },
             "additionalProperties": true
+          },
+          "actor_relationships": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "related_name": {
+                  "type": "string"
+                },
+                "rel_type": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "actor_relationships_coverage": {
+            "type": "string",
+            "description": "Present only when actor_relationships is empty: says the baseline has no row, not that the actor is unrelated."
           }
         },
         "required": [
@@ -1643,7 +1918,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "search_actors",
       "title": "List Actors",
-      "description": "List attributed threat actors with aggregate stats (threat_count, severity levels, categories, nation_state). Returns the full roster in one call, or narrow it with the optional tool / malware / sector filters (e.g. tool=\"Cobalt Strike\" → only actors that used it). Use get_actor for a single actor's full profile. Not paginated; the response carries a total count.",
+      "description": "List attributed threat actors with aggregate stats (threat_count, severity levels, categories, nation_state). Returns the full roster in one call, or narrow it with the optional tool / malware / sector filters (e.g. tool=\"Cobalt Strike\" → only actors that used it). Use get_actor for a single actor's full profile. Not paginated; the response carries a total count. Names are REPAIRED before they are returned: the corpus stores threat_actor as free text and comma-split it, so prose fragments and truncated parentheticals used to appear as adversaries — `label_hygiene` reports what was dropped and repaired. Two per-row flags matter: `role: \"co-mention\"` means the corpus never files a threat under that name as its primary attribution, and `also_grounded_as` means the corpus also records the name as a malware family or tool (e.g. SNOWLIGHT). Check both before reporting a row as an operator.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1688,10 +1963,55 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 },
                 "threat_count": {
                   "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "description": "primary = the corpus files at least one threat under this name. co-mention = it only ever appears alongside another actor, so it may be a mis-split label rather than an operator."
+                },
+                "also_grounded_as": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "merged_from": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "additionalProperties": true
             }
+          },
+          "label_hygiene": {
+            "type": "object",
+            "properties": {
+              "raw_labels": {
+                "type": "integer"
+              },
+              "actors": {
+                "type": "integer"
+              },
+              "dropped": {
+                "type": "integer",
+                "description": "Labels rejected as comma-split sentence fragments, not adversaries."
+              },
+              "repaired": {
+                "type": "integer",
+                "description": "Labels whose truncated parenthetical was trimmed back to the name."
+              },
+              "dropped_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           },
           "has_more": {
             "type": "boolean",
@@ -1713,9 +2033,358 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
       }
     },
     {
+      "name": "get_actor_relationships",
+      "title": "Known Actor Links",
+      "description": "The platform's baseline of ALREADY-DOCUMENTED links between threat actors (subgroup / overlaps / similar / linked-to) with both uuids and the source. Call this before claiming any actor-to-actor relationship is new — it is the only surface that says whether a link is public knowledge. CRITICAL: this table is sparse, covering a small minority of the corpus's actor labels (the response carries live coverage numbers). An empty result means the link is UNRECORDED, never that it was disproved or that the actors are unrelated. Use it to rule a claim out of NOVELTY, never to rule a relationship out of EXISTENCE. Matches both slots, so it also returns rows where your actor is the target — get_actor's relationship list does not.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Optional: only rows naming this actor on either side (e.g. \"Lazarus Group\"). Omit to list the whole baseline."
+          },
+          "rel_type": {
+            "type": "string",
+            "description": "Optional: filter by relationship type. The response's coverage.rel_types lists what is actually present."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 50, max 200."
+          }
+        }
+      },
+      "annotations": {
+        "title": "Known Actor Links",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "actor_name": {
+                  "type": "string"
+                },
+                "actor_uuid": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "related_name": {
+                  "type": "string"
+                },
+                "related_uuid": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rel_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "subgroup-of | overlaps | similar | linked-to"
+                },
+                "source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "matched_slot": {
+                  "type": "string",
+                  "description": "Present only when `actor` was passed: 'actor_name' or 'related_name'."
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "unrecorded": {
+            "type": "boolean",
+            "description": "Present and true when an `actor` filter matched nothing. Means UNRECORDED, not \"no relationships exist\"."
+          },
+          "unrecorded_note": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "total_rows": {
+                "type": "integer"
+              },
+              "labels_named_in_table": {
+                "type": "integer"
+              },
+              "corpus_actor_labels": {
+                "type": "integer"
+              },
+              "corpus_actor_labels_with_a_row": {
+                "type": "integer"
+              },
+              "corpus_coverage_pct": {
+                "type": "number",
+                "description": "Share of real corpus actor labels that have ANY row. Read the caveat before treating an empty result as meaningful."
+              },
+              "rel_types": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            "additionalProperties": true
+          },
+          "caveat": {
+            "type": "string",
+            "description": "Absence-is-not-evidence statement. Do not drop it when summarising."
+          }
+        },
+        "required": [
+          "data",
+          "coverage",
+          "caveat"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_entity_aliases",
+      "title": "Entity Aliases (reverse)",
+      "description": "Every alias the reference set maps to ONE entity — the reverse of resolve_entity, which only walks a single alias forward. Use it to check alias collision: the commonest reason two \"different actors\" turn out to be one. IMPORTANT: the source (MISP) OVER-MERGES — it folds subgroups into their parent, so \"andariel\" and \"bluenoroff\" both appear under \"Lazarus Group\". An alias entry is a MAPPING, not an assertion of identity. Each alias therefore carries `relation` (canonical|subgroup|alias), `other_entities` (how many other entities claim the same label) and `corpus_threats` (how many threats this platform files under that exact label); `corpus_uses_separately` lists labels the corpus treats as their own actor despite the merge. Accepts a name or a uuid.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name or alias to expand (e.g. \"andariel\"). Resolved exact-then-fuzzy, same ladder as resolve_entity."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Entity uuid, if you already have one from resolve_entity. Skips resolution."
+          },
+          "type": {
+            "type": "string",
+            "description": "Optional: actor|malware|tool|sector|region|technique|campaign — narrows name resolution."
+          }
+        }
+      },
+      "annotations": {
+        "title": "Entity Aliases (reverse)",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "matched": {
+            "type": "boolean"
+          },
+          "matched_via": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "uuid | exact | fuzzy"
+          },
+          "uuid": {
+            "type": "string"
+          },
+          "canonical": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cluster": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alias_count": {
+            "type": "integer"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alias": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string",
+                  "description": "canonical | subgroup | alias — a mapping, NOT an assertion of identity."
+                },
+                "other_entities": {
+                  "type": "integer",
+                  "description": "Other entities claiming the same label. >0 means the merge is contested."
+                },
+                "corpus_threats": {
+                  "type": "integer",
+                  "description": "Threats this platform files under that exact label."
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "corpus_uses_separately": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "caveat": {
+            "type": "string",
+            "description": "Over-merge warning. Do not drop it when summarising."
+          }
+        },
+        "required": [
+          "matched"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "title": "List Named Campaigns",
+      "description": "Roster of NAMED campaigns/operations referenced by the corpus, with the actors, nation-states, date range and member threats behind each. Answers the campaign-lineage question the other tools cannot: get_campaign_intelligence needs you to already know a name, and get_graph_campaigns only reports the engine's own similarity clusters. Filter with min_actors to find campaigns carrying two or more distinct actors. Each member carries `text_supported` — whether the campaign name literally occurs in that threat's own record — because the underlying table has no provenance column and at least one row attaches a threat to a campaign with no textual basis, manufacturing a cross-nation link. Check `unsupported` and `cross_nation` before treating campaign co-membership as correlation evidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "min_actors": {
+            "type": "integer",
+            "description": "Only campaigns with at least this many DISTINCT actor labels (e.g. 2 for multi-actor campaigns)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 50, max 200."
+          }
+        }
+      },
+      "annotations": {
+        "title": "List Named Campaigns",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "campaign": {
+                  "type": "string"
+                },
+                "misp_uuid": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "threat_count": {
+                  "type": "integer"
+                },
+                "ref_count": {
+                  "type": "integer"
+                },
+                "actor_count": {
+                  "type": "integer"
+                },
+                "actors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "nation_states": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "cross_nation": {
+                  "type": "integer",
+                  "description": "1 when members span more than one nation-state — check `unsupported` before believing it."
+                },
+                "first_seen": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_seen": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supported_refs": {
+                  "type": "integer"
+                },
+                "unsupported_refs": {
+                  "type": "integer"
+                },
+                "unsupported": {
+                  "type": "array",
+                  "items": {}
+                },
+                "members": {
+                  "type": "array",
+                  "items": {}
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          },
+          "caveat": {
+            "type": "string",
+            "description": "Explains text_supported and its false negatives. Do not drop it when summarising."
+          }
+        },
+        "required": [
+          "data",
+          "caveat"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
       "name": "get_cve",
       "title": "Get CVE",
-      "description": "Look up a CVE by identifier (e.g. CVE-2024-3400): description, CVSS, affected products, references, and linked threats.",
+      "description": "Look up a CVE by identifier (e.g. CVE-2024-3400): description, CVSS v2/v3/v4, EPSS, CISA KEV status, exploitation flags (PoC/exploit/nuclei), weaknesses (CWE ids), affected products, references, and linked threats. `threat_ids` is the LIVE join over threats.cve_list (threat_ids_source says so; threat_ids_note appears when the stale derived index disagreed, and any ids only that index held are surfaced separately in threat_ids_derived_only rather than merged) — it is the same linkage get_cve_intelligence reports. Enumerated pre-release CPEs are collapsed into ranges (affected_products_raw_count gives the uncollapsed count). enrichment_status distinguishes a fully enriched record from one merely seeded from KEV, where blank CVSS/EPSS means NOT MEASURED rather than measured-absent. For linked threats WITH titles/actors/detections/velocity in one call, prefer get_cve_intelligence.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1803,12 +2472,42 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "array",
             "items": {
               "type": "string",
-              "description": "Threats exploiting this CVE — pass to get_threat."
+              "description": "Threats referencing this CVE, from the LIVE threats.cve_list join — pass to get_threat."
+            }
+          },
+          "threat_count": {
+            "type": "integer"
+          },
+          "threat_ids_source": {
+            "type": "string",
+            "description": "Always 'threats.cve_list (authoritative live join)' when the join ran."
+          },
+          "threat_ids_note": {
+            "type": "string",
+            "description": "Present only when the derived cve_details.threat_ids reverse index disagreed with the live join."
+          },
+          "threat_ids_derived_only": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Ids the stale derived index held that the live join does not - unconfirmed historical linkage, deliberately NOT merged into threat_ids."
             }
           },
           "affected_products": {
             "type": "array",
             "items": {}
+          },
+          "affected_products_raw_count": {
+            "type": "integer",
+            "description": "Entries before pre-release CPE collapsing."
+          },
+          "enrichment_status": {
+            "type": "string",
+            "description": "'enriched' or 'not_enriched'. On 'not_enriched' a blank CVSS/EPSS/age_days means NOT MEASURED, not measured-empty."
+          },
+          "enrichment_note": {
+            "type": "string",
+            "description": "Present only on 'not_enriched'; names the seeding source."
           },
           "published_date": {
             "type": "string"
@@ -1823,7 +2522,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_cwe",
       "title": "Get CWE",
-      "description": "Look up a CWE by identifier (e.g. CWE-79): weakness name, description, severity, related CVEs, and mitigation guidance.",
+      "description": "Look up a CWE by identifier (e.g. CWE-79): weakness name, description, abstraction, MITRE likelihood_of_exploit, common consequences, detection methods, phased mitigations, related CWEs, the corpus threats that carry it, and related_cves - the corpus CVEs mapping to this weakness (top 20 by KEV then CVSS, with related_cve_count giving the true total; use search_vulnerabilities with cwe=<id> for the full list). NOTE: CWE has no CVSS severity - likelihood_of_exploit is the ontology's own High/Medium/Low rating, and severity_note says so; for scored severity read the related_cves rows or call get_cve. related_cves is null (never []) if the join could not run.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1859,13 +2558,34 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           "description": {
             "type": "string"
           },
+          "abstraction": {
+            "type": "string"
+          },
+          "likelihood_of_exploit": {
+            "type": "string",
+            "description": "MITRE's High/Medium/Low rating. CWE has NO CVSS severity — see severity_note."
+          },
+          "severity_note": {
+            "type": "string"
+          },
+          "common_consequences": {
+            "type": "array",
+            "items": {}
+          },
+          "detection_methods": {
+            "type": "array",
+            "items": {}
+          },
           "mitigations": {
             "type": "array",
             "items": {}
           },
           "related_cwes": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "string",
+              "description": "De-duplicated CWE ids — pass to get_cwe."
+            }
           },
           "threat_ids": {
             "type": "array",
@@ -1873,6 +2593,57 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "type": "string",
               "description": "Pass to get_threat."
             }
+          },
+          "related_cves": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "description": "Corpus CVEs mapping to this CWE (top 20, KEV then CVSS). NULL means the join could not run — it never means \"none exist\"; [] does.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cve_id": {
+                  "type": "string",
+                  "description": "Pass to get_cve."
+                },
+                "cvss": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "severity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "epss": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "is_kev": {
+                  "type": "boolean"
+                },
+                "is_ransomware": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "related_cve_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "True total mapping to this CWE, which can exceed the 20 returned."
+          },
+          "related_cves_note": {
+            "type": "string"
           }
         },
         "required": [
@@ -1972,7 +2743,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "limit": {
             "type": "number",
-            "description": "Max results (default 10, max 50)"
+            "description": "Max results (default 10, max 20 — the handler caps here)."
           }
         },
         "required": [
@@ -2045,6 +2816,28 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "additionalProperties": true
             }
           },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "returned": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "matched": {
+                "type": "integer"
+              },
+              "has_more": {
+                "type": "boolean"
+              },
+              "matched_is_floor": {
+                "type": "boolean",
+                "description": "True when the source queries saturated, so `matched` under-counts."
+              }
+            },
+            "additionalProperties": true
+          },
           "similar": {
             "type": "array",
             "items": {}
@@ -2065,7 +2858,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_landscape_briefing",
       "title": "Landscape Briefing",
-      "description": "Get the latest threat-landscape briefing — a synthesized posture summary of recent threat activity.",
+      "description": "Get the latest threat-landscape briefing — a synthesized posture summary of recent threat activity. `latest` is the most recent briefing that is a REAL synthesis: the narrative model currently fails on most hourly runs, and a failed run still writes a one-bullet automated posture stub, so the newest row is usually not a summary at all. When a fallback is served the response says so (latest_is_fallback + fallback_note naming both dates) and `latest_age_hours` gives its age; `briefings[0]` is always the newest regardless of quality, and every row carries is_synthesis. narrative_ok reports whether the newest run produced a real narrative.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -2099,6 +2892,9 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                   "items": {
                     "type": "string"
                   }
+                },
+                "is_synthesis": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": true
@@ -2108,7 +2904,8 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "description": "The most recent REAL synthesis (see latest_is_fallback)."
           },
           "top_viewed": {
             "type": "array",
@@ -2124,6 +2921,44 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               },
               "additionalProperties": true
             }
+          },
+          "narrative_ok": {
+            "type": "boolean",
+            "description": "Did the NEWEST run produce a real narrative?"
+          },
+          "latest_is_synthesis": {
+            "type": "boolean"
+          },
+          "latest_generated_at": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "latest_age_hours": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "newest_generated_at": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stub_count": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "latest_is_fallback": {
+            "type": "boolean"
+          },
+          "fallback_note": {
+            "type": "string",
+            "description": "Names which date was served and which was skipped."
           }
         },
         "additionalProperties": true
@@ -2132,7 +2967,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_daily_theme",
       "title": "Daily Theme",
-      "description": "Get the day's landscape theme and top threat tags.",
+      "description": "Get the recent daily landscape themes (newest first, 14 days) with each day's top 6 threat tags. `tags` is recomputed LIVE over that date's threats, ranked count-descending with an alphabetical tie-break, and `tags_source` says whether a row used the live rollup ('live'), the stored nightly snapshot ('snapshot') or had no tags at all ('none') — `tags_available` is the boolean. The theme SENTENCE is generated just after midnight ET, before the day's ingest finishes, so `theme_note`/`snapshot_threat_count` disclose how many of the day's threats it was actually written from; when they disagree, trust `tags`.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -2161,11 +2996,36 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 "tags": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "tag": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
                   }
                 },
+                "tags_source": {
+                  "type": "string",
+                  "description": "live | snapshot | none."
+                },
+                "tags_available": {
+                  "type": "boolean"
+                },
                 "threat_count": {
-                  "type": "integer"
+                  "type": "integer",
+                  "description": "Live count of that date's threats."
+                },
+                "snapshot_threat_count": {
+                  "type": "integer",
+                  "description": "How many threats existed when the theme sentence was written."
+                },
+                "theme_note": {
+                  "type": "string",
+                  "description": "Present when the sentence was written from fewer threats than the day ended with."
                 }
               },
               "additionalProperties": true
@@ -2176,6 +3036,9 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "object",
               "null"
             ]
+          },
+          "tags_note": {
+            "type": "string"
           }
         },
         "additionalProperties": true
@@ -2240,7 +3103,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_ioc_blast_radius",
       "title": "IOC Blast Radius",
-      "description": "Map the blast radius of one indicator: the threats that contain it, the MITRE techniques those threats use, and the actors + sibling IOCs in the same campaigns. Use this to scope impact of a single IOC; for a richer multi-source dossier on one indicator use get_ioc_intelligence instead.",
+      "description": "Map the blast radius of one indicator: the threats that contain it, the MITRE techniques those threats use, and the actors + sibling IOCs in the same campaigns. Matching is case-insensitive, and for a CVE the threat ring is the UNION of indicator rows and threats.cve_list (the authoritative CVE-to-threat mapping) — `coverage` reports which of the two produced how many, so a count can be traced to its source. `edge_scores` is a sampled graph_edges projection for fidelity context, never the denominator. Use this to scope impact of a single IOC; for a richer multi-source dossier on one indicator use get_ioc_intelligence instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2295,6 +3158,47 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "properties": {
               "total_threats": {
                 "type": "integer"
+              },
+              "total_techniques": {
+                "type": "integer"
+              },
+              "total_actors": {
+                "type": "integer"
+              },
+              "sibling_iocs": {
+                "type": "integer"
+              },
+              "rings": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "center_is_cve": {
+                "type": "boolean"
+              },
+              "ring1_from_ioc_rows": {
+                "type": "integer",
+                "description": "Threats reached via a threat_iocs row carrying this exact value."
+              },
+              "ring1_from_cve_list": {
+                "type": "integer",
+                "description": "Threats reached via threats.cve_list, the authoritative CVE-to-threat mapping. Ring 1 is the UNION of the two, not either alone."
+              },
+              "depth_requested": {
+                "type": "integer"
+              },
+              "sibling_iocs_capped": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
               }
             },
             "additionalProperties": true
@@ -2452,7 +3356,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_infrastructure_pivots",
       "title": "Infrastructure Pivots",
-      "description": "For a given threat, surface cross-threat infrastructure links — shared IPs/domains and DNS-derived overlaps that tie it to other campaigns. Use to widen from a single threat to its infrastructure neighborhood; use get_similar_threats for TTP/actor-based similarity instead.",
+      "description": "For a given threat, surface cross-threat infrastructure links — shared IPs/domains/hashes and DNS-derived overlaps that tie it to other campaigns. Derived from the SAME indicator universe the correlation graph scores, so a pivot here and an ioc-basis edge in explain_correlation agree. Each pivot carries value_threat_count (2 = the value is nearly unique to this pair; 40 = commodity such as a Run key) and a rarity-derived confidence — read those before calling an overlap a link. `coverage` gives the denominator: pivot_count 0 with scorable_iocs > 0 is a REAL negative, pivot_count 0 with scorable_iocs 0 only means the threat carries no pivotable indicator. Labels (malware family, tool name, technique) are deliberately not pivotable — two write-ups naming the same family observed nothing in common. Use get_similar_threats for TTP/actor-based similarity instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2498,6 +3402,27 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 "link_type": {
                   "type": "string"
                 },
+                "pivot_value": {
+                  "type": "string"
+                },
+                "ioc_type": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number",
+                  "description": "Rarity-derived (Adamic-Adar) for shared_ioc rows; hand-set for curated_link rows."
+                },
+                "value_threat_count": {
+                  "type": "number",
+                  "description": "How many threats corpus-wide carry this value — 2 is a strong pivot, 40 is commodity."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "'shared_ioc' (derived from the same indicator universe the correlation graph scores) or 'curated_link'."
+                },
                 "related_threat": {
                   "type": "object",
                   "properties": {
@@ -2514,6 +3439,48 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           "dns_trail": {
             "type": "array",
             "items": {}
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "ioc_rows": {
+                "type": "number"
+              },
+              "ioc_values_examined": {
+                "type": "number"
+              },
+              "scorable_iocs": {
+                "type": "number"
+              },
+              "threats_compared": {
+                "type": "number"
+              },
+              "threats_touched": {
+                "type": "number"
+              },
+              "shared_ioc_pivots": {
+                "type": "number"
+              },
+              "curated_link_pivots": {
+                "type": "number"
+              },
+              "common_values_excluded": {
+                "type": "number"
+              },
+              "rarity_cap": {
+                "type": "number"
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "dns_enriched": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           }
         },
         "required": [
@@ -2720,7 +3687,11 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "limit": {
             "type": "number",
-            "description": "Max records for paginated views like beacons (default 50, max 100)"
+            "description": "Max records for the record-bearing views — beacons (default 50), configs (default 25), correlations (default 25). Max 100."
+          },
+          "offset": {
+            "type": "number",
+            "description": "Skip this many records — 'correlations' only; the aggregate summary block stays whole across pages."
           }
         }
       },
@@ -2883,6 +3854,14 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "enrichment"
             ],
             "description": "Which correlation engine to read (default 'overview')"
+          },
+          "limit": {
+            "type": "number",
+            "description": "'mitre-heatmap' only: max techniques, ordered by risk_score (default 50, max 200). The summary block always covers all techniques."
+          },
+          "offset": {
+            "type": "number",
+            "description": "'mitre-heatmap' only: skip this many techniques."
           }
         }
       },
@@ -2942,7 +3921,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "predict_mitre_transitions",
       "title": "Predict MITRE Transitions",
-      "description": "Predict the MITRE ATT&CK techniques most likely to follow (or precede) a given technique, with observed probabilities and example threats. Use forward to anticipate the next step in a kill chain; reverse to infer what came before. Pair with get_mitre_technique for the technique definition.",
+      "description": "Predict the MITRE ATT&CK techniques most likely to follow (or precede) a given technique, with probabilities and example threats. Each row carries order_basis: 'attack_flow' rows come from analyst-authored ATT&CK Flow DAGs (real asserted causality), 'mitre_canonical' rows are inferred by sorting a threat's flat technique set by canonical tactic rank, and 'blended' rows have both. Prefer attack_flow evidence: ~24% of real transitions run against canonical tactic order and are inexpressible by the canonical basis. Use forward to anticipate the next step; reverse to infer what came before.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2961,6 +3940,16 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           "top_n": {
             "type": "number",
             "description": "Max transitions to return (default 5, max 20)"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "any",
+              "attack_flow",
+              "blended",
+              "mitre_canonical"
+            ],
+            "description": "Filter by evidence basis. Default 'any' (unfiltered, byte-identical to previous behaviour). Use 'attack_flow' for authored-causality rows only."
           }
         }
       },
@@ -3020,15 +4009,645 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
       }
     },
     {
+      "name": "get_attack_flow",
+      "title": "Attack Flow",
+      "description": "Get the analyst-authored MITRE ATT&CK Flow for a threat: a causal DAG of actions, conditions, operators and assets, with per-node technique ids, tactics and descriptions. This is asserted causality — what actually caused what — not a flat technique list. Check `generator`: 'harness' is authored, 'derived' is timeline ORDERING and must not be read as causality. Use get_flow_similar_threats to find threats sharing a causal sequence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threat_id": {
+            "type": "string",
+            "description": "Threat ID (e.g. TL-2026-1916)"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "ir",
+              "nodes"
+            ],
+            "description": "'ir' (default) returns the compact flow IR plus validation findings; 'nodes' returns the denormalized node/edge/asset projection with technique and tactic columns already joined."
+          }
+        },
+        "required": [
+          "threat_id"
+        ]
+      },
+      "annotations": {
+        "title": "Attack Flow",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "threat_id": {
+            "type": "string"
+          },
+          "generator": {
+            "type": "string",
+            "description": "'harness' = analyst-authored causality. 'derived' = timeline ORDERING only — must not be read as causality. 'unknown' = published before provenance was tracked; treat as not authoritative."
+          },
+          "node_count": {
+            "type": "number"
+          },
+          "flow_valid": {
+            "type": "boolean"
+          },
+          "flow_errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "flow_warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "flow": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "start": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "description": "action | condition | operator | asset"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "desc": {
+                      "type": "string"
+                    },
+                    "tid": {
+                      "type": "string",
+                      "description": "ATT&CK technique id (action nodes)."
+                    },
+                    "tactic": {
+                      "type": "string"
+                    },
+                    "op": {
+                      "type": "string",
+                      "description": "AND | OR (operator nodes). An operator JOINS its incoming edges."
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "edges": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "when": {
+                      "type": "string",
+                      "description": "'true' | 'false' on edges out of a condition."
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "threat_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_flow_similar_threats",
+      "title": "Flow-Similar Threats",
+      "description": "Find threats that share a causal SEQUENCE of techniques with this one, scored by ordered-bigram cosine over ATT&CK Flow transitions. This sees what no other channel can: every existing similarity signal compares flat sets, so two threats can share an identical attack ORDER while sharing no indicator, CVE or actor. Returns the shared transitions (e.g. 'T1003>T1021') so the claim is inspectable. Scored independently and NOT folded into get_similar_threats' blended score.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threat_id": {
+            "type": "string",
+            "description": "Threat ID (e.g. TL-2026-1916)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max neighbours (default 20, max 100)"
+          },
+          "min_score": {
+            "type": "number",
+            "description": "Drop neighbours below this sim_flow (0-1)"
+          }
+        },
+        "required": [
+          "threat_id"
+        ]
+      },
+      "annotations": {
+        "title": "Flow-Similar Threats",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "threat_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "threat_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "threat_actor": {
+                  "type": "string"
+                },
+                "nation_state": {
+                  "type": "string"
+                },
+                "sim_flow": {
+                  "type": "number",
+                  "description": "Ordered-bigram cosine over flow transitions, 0-1."
+                },
+                "shared_bigrams": {
+                  "type": "number"
+                },
+                "shared_transitions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Present only when data is empty; distinguishes \"no flow published\" from \"flow published, no neighbours\"."
+          }
+        },
+        "required": [
+          "threat_id",
+          "data"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_flow_coverage",
+      "title": "Flow Coverage",
+      "description": "How much of the corpus carries an authored ATT&CK Flow, split by provenance, plus flow node/transition/path-similarity totals and whether the flow similarity channel has met its coverage gate. Call this before reasoning over flow data so you know the denominator — flow-derived findings only speak to the covered slice.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "title": "Flow Coverage",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "threats": {
+            "type": "number"
+          },
+          "flows": {
+            "type": "number"
+          },
+          "authored": {
+            "type": "number",
+            "description": "Flows with generator='harness'. Only these assert causality."
+          },
+          "coverage_pct": {
+            "type": "number",
+            "description": "Authored flows as a percentage of the corpus — the denominator for any flow-derived claim."
+          },
+          "by_generator": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "generator": {
+                  "type": "string"
+                },
+                "c": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "flow_nodes": {
+            "type": "number"
+          },
+          "flow_transitions": {
+            "type": "number"
+          },
+          "path_similarity_pairs": {
+            "type": "number"
+          },
+          "channel": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "coverage_gate_pct": {
+                "type": "number"
+              },
+              "gate_met": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "threats",
+          "flows",
+          "coverage_pct"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_d3fend_posture",
+      "title": "D3FEND Posture",
+      "description": "Get the defensive twin of a threat's ATT&CK mapping: offensive technique to digital artifact to D3FEND countermeasure, plus coverage by defensive tactic. Use to answer 'what would have stopped this'. COVERAGE: 197 of 1,891 threats carry a mapping, so absence is common and is not an error — a threat that exists with no mapping answers 200 with an empty `mappings` and a `reason` saying whether it has no techniques at all or techniques the ontology has no countermeasure for; only an unknown threat id answers 404. IMPORTANT: this is a deterministic projection of the threat's techniques through a static ontology — two threats sharing countermeasures almost always just share techniques, so never treat countermeasure overlap as independent correlation evidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threat_id": {
+            "type": "string",
+            "description": "Threat ID (e.g. TL-2026-1916)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Raw technique x countermeasure pairs in `mappings` (default 60, max 500). `countermeasures` always rolls up ALL pairs regardless, so the default loses no information — raise this only if you need the individual pairings."
+          }
+        },
+        "required": [
+          "threat_id"
+        ]
+      },
+      "annotations": {
+        "title": "D3FEND Posture",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "threat_id": {
+            "type": "string"
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "off_technique_id": {
+                  "type": "string",
+                  "description": "The ATT&CK technique this countermeasure answers."
+                },
+                "off_technique_base": {
+                  "type": "string"
+                },
+                "off_artifact": {
+                  "type": "string"
+                },
+                "def_artifact": {
+                  "type": "string",
+                  "description": "The digital artifact — this axis is the genuinely new signal."
+                },
+                "def_artifact_rel": {
+                  "type": "string"
+                },
+                "def_tech_id": {
+                  "type": "string",
+                  "description": "D3FEND countermeasure id, e.g. D3-ULA."
+                },
+                "def_tech_label": {
+                  "type": "string"
+                },
+                "def_tactic": {
+                  "type": "string",
+                  "description": "D3FEND defensive tactic: Model / Harden / Detect / Isolate / Deceive / Evict / Restore."
+                },
+                "ontology_version": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "coverage": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "def_tactic": {
+                  "type": "string"
+                },
+                "countermeasures": {
+                  "type": "number"
+                },
+                "techniques": {
+                  "type": "number"
+                },
+                "artifacts": {
+                  "type": "number"
+                },
+                "top_json": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "number",
+            "description": "TOTAL technique x countermeasure pairs, not the number returned in `mappings`."
+          },
+          "mappings_returned": {
+            "type": "number"
+          },
+          "mappings_truncated": {
+            "type": "boolean",
+            "description": "True when `mappings` was capped; `countermeasures` still covers every pair."
+          },
+          "countermeasures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "def_tech_id": {
+                  "type": "string"
+                },
+                "def_tech_label": {
+                  "type": "string"
+                },
+                "def_tactic": {
+                  "type": "string"
+                },
+                "offensive_techniques": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pair_count": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "countermeasure_count": {
+            "type": "number"
+          },
+          "detail_hint": {
+            "type": "string"
+          },
+          "offensive_technique_count": {
+            "type": "number",
+            "description": "Distinct ATT&CK techniques on the threat — the denominator the projection ran over."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Present only on the 200-with-zero-mappings case: says WHY there is no posture (no techniques mapped vs techniques with no countermeasure)."
+          },
+          "error": {
+            "type": "string",
+            "description": "Present only on 404 ('threat not found'). A threat that exists but has no mapping answers 200, never 404."
+          },
+          "caveat": {
+            "type": "string",
+            "description": "States that this is a deterministic projection of threat_mitre, not independent evidence."
+          }
+        },
+        "required": [
+          "threat_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_atlas_intelligence",
+      "title": "ATLAS (Adversarial ML)",
+      "description": "MITRE ATLAS technique co-occurrence for threats that attack AI/ML systems — prompt injection, agent-tool abuse, context and memory poisoning, cost harvesting. `data` returns pairs whose BOTH endpoints are real ATLAS ids (^AML.), with cooccurrence_count, support, confidence and lift; free-text publish labels (\"Prompt Injection\", \"Tool Poisoning\") are returned SEPARATELY in `tag_pairs` and are not ATLAS techniques. SMALL-N WARNING: the corpus holds 106 pairs of which only 10 were observed more than once, so min_cooccurrence defaults to 2. Lower it and you get rows where confidence=1.0 and lift=1/support are arithmetic on a single observation — those carry single_observation:true; do not report them as associations. Ranked by cooccurrence_count, then lift.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max pairs per list (default 50, max 100)"
+          },
+          "min_cooccurrence": {
+            "type": "integer",
+            "description": "Minimum times the two techniques were seen together. Default 2 (the honest set). 1 includes single-observation pairs, which are flagged single_observation:true."
+          }
+        }
+      },
+      "annotations": {
+        "title": "ATLAS (Adversarial ML)",
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "atlas_a": {
+                  "type": "string",
+                  "description": "Real ATLAS id (^AML.) — both endpoints in `data` are guaranteed to match."
+                },
+                "atlas_b": {
+                  "type": "string"
+                },
+                "cooccurrence_count": {
+                  "type": "integer",
+                  "description": "Threats in which BOTH techniques appear. The primary ranking key — support/confidence/lift are only interpretable above 1."
+                },
+                "support": {
+                  "type": "number"
+                },
+                "confidence_ab": {
+                  "type": "number"
+                },
+                "confidence_ba": {
+                  "type": "number"
+                },
+                "lift": {
+                  "type": "number"
+                },
+                "single_observation": {
+                  "type": "boolean",
+                  "description": "True when cooccurrence_count is 1 — confidence 1.0 and lift 1/support are then arithmetic, not evidence."
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "number"
+          },
+          "tag_pairs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "atlas_a": {
+                  "type": "string"
+                },
+                "atlas_b": {
+                  "type": "string"
+                },
+                "cooccurrence_count": {
+                  "type": "integer"
+                },
+                "single_observation": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "tag_pair_count": {
+            "type": "number"
+          },
+          "filters": {
+            "type": "object",
+            "properties": {
+              "min_cooccurrence": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "pairs": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "repeated": {
+                "type": "integer",
+                "description": "Pairs seen more than once — the honest denominator."
+              },
+              "passing_min": {
+                "type": "integer"
+              },
+              "atlas_id_pairs": {
+                "type": "integer"
+              },
+              "tag_pairs": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "corpus": {
+            "type": "object",
+            "properties": {
+              "rows": {
+                "type": "number"
+              },
+              "threats": {
+                "type": "number"
+              },
+              "techniques": {
+                "type": "number"
+              },
+              "atlas_techniques": {
+                "type": "number",
+                "description": "Distinct real AML.* ids — the rest of `techniques` are free-text labels."
+              }
+            },
+            "additionalProperties": true
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
       "name": "get_threat_simulations",
       "title": "Threat Simulations",
-      "description": "Get the adversary-emulation / simulation playbooks attached to a threat — step-by-step commands by platform for safely reproducing the behavior in a lab. Use to operationalize detection testing for a specific threat.",
+      "description": "DEPRECATED (generation stopped 2026-08-03; ~5,362 archived rows still served, no new ones are produced) — the response carries deprecated:true and the caveat inline. Adversary-emulation playbooks attached to a threat. Most were synthetic-telemetry generators against local mocks rather than real execution, so they could not trigger the platform's own detections. One threat's playbooks can run 30 KB+ of command text: narrow with platform (see available_platforms) and limit. An empty result carries a `reason` distinguishing \"this threat never had any\" from \"none for that platform\". Prefer get_attack_flow, which returns the analyst-authored causal DAG that replaced them.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "threat_id": {
             "type": "string",
             "description": "Threat ID (e.g. TL-2026-0042)"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Return only this platform: windows, linux, python (also aws, macos, multi on a few rows). Omit for all."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max playbooks to return (max 50). Omit for all — bodies are large."
           }
         },
         "required": [
@@ -3047,6 +4666,17 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
         "properties": {
           "threat_id": {
             "type": "string"
+          },
+          "deprecated": {
+            "type": "boolean"
+          },
+          "generation_stopped": {
+            "type": "string",
+            "description": "Date generation stopped (2026-08-03)."
+          },
+          "caveat": {
+            "type": "string",
+            "description": "Why these do not prove your detections fire."
           },
           "simulations": {
             "type": "array",
@@ -3069,6 +4699,29 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               },
               "additionalProperties": true
             }
+          },
+          "total_simulations": {
+            "type": "integer",
+            "description": "All archived playbooks for this threat, before platform/limit."
+          },
+          "matched": {
+            "type": "integer"
+          },
+          "returned": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "available_platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Present only on an empty result: no_simulations_for_threat | no_simulations_for_platform."
           },
           "platforms": {
             "type": "object",
@@ -3098,7 +4751,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "list_debriefs",
       "title": "List Debriefs",
-      "description": "List recent daily intelligence debriefs (newest first) with their per-day rollups: new/updated threats, themes, MITRE techniques, IOC breakdown, actors, and severity counts. Use to scan recent days; use get_debrief for the full detail of one date. Pass limit (default 30, max 100); the result includes has_more (true when the page is full, so older debriefs may exist). NOTE: the debriefs endpoint does not yet honor offset — it serves the most recent window.",
+      "description": "List recent daily intelligence debriefs (newest first) with their per-day rollups: new/updated threats, the day's theme, top categories and actors, severity counts, mitre_technique_count (+ mitre_techniques_sample, the first 10 of an alphabetically-sorted ID list — NOT a top-10), and ioc_breakdown by type with ioc_total. Enough to pick the day worth drilling into without fetching each one; use get_debrief for a date's full detail (all techniques, per-threat lists, highlights). Pass limit (default 30, max 100); the result includes has_more (true when the page is full, so older debriefs may exist). NOTE: the debriefs endpoint does not yet honor offset — it serves the most recent window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3127,8 +4780,59 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                   "type": "string",
                   "description": "YYYY-MM-DD — pass to get_debrief."
                 },
-                "title": {
-                  "type": "string"
+                "daily_theme": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "new_threats": {
+                  "type": "integer"
+                },
+                "updated_threats": {
+                  "type": "integer"
+                },
+                "total_threats": {
+                  "type": "integer"
+                },
+                "new_detections": {
+                  "type": "integer"
+                },
+                "severity_counts": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "top_categories": {
+                  "type": "array",
+                  "items": {}
+                },
+                "top_actors": {
+                  "type": "array",
+                  "items": {}
+                },
+                "mitre_technique_count": {
+                  "type": "integer"
+                },
+                "mitre_techniques_sample": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "ioc_breakdown": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "IOC counts keyed by type (network, file, infrastructure, …)."
+                },
+                "ioc_total": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               },
               "additionalProperties": true
@@ -3299,7 +5003,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "export_attack_navigator",
       "title": "Export ATT&CK Navigator Layer",
-      "description": "Export a MITRE ATT&CK Navigator layer (enterprise-attack) for visualization. Pass actor=<name> to score techniques attributed to one actor, or all=true for platform-wide coverage. Returns {name, versions, domain, techniques:[{techniqueID, score, color, comment}]}, capped at 600 techniques.",
+      "description": "Export a MITRE ATT&CK Navigator layer (enterprise-attack) for visualization. Pass actor=<name> to score techniques attributed to one actor, or all=true for platform-wide coverage. score is PER TECHNIQUE — the number of corpus threats using it (for the actor, or platform-wide) — so the heatmap ranks within a tactic, not just between tactics; the unit is stated in the layer's description and metadata. Returns {name, versions, domain, description, techniques:[{techniqueID, score, color, comment}], gradient, metadata}. Capped at 600 techniques; when the tail is dropped, metadata carries a 'truncated' entry saying so. ATLAS (AML.*) and non-enterprise ids are excluded, since the layer domain is enterprise-attack.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3334,6 +5038,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "properties": {},
             "additionalProperties": true
           },
+          "description": {
+            "type": "string",
+            "description": "Includes the scoring unit (\"Score = …\")."
+          },
           "techniques": {
             "type": "array",
             "items": {
@@ -3343,10 +5051,17 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                   "type": "string"
                 },
                 "score": {
-                  "type": "number"
+                  "type": "number",
+                  "description": "Threats using THIS technique (per-technique, not per-tactic). See description/metadata for the unit."
                 },
                 "comment": {
                   "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": true
@@ -3356,6 +5071,21 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "object",
             "properties": {},
             "additionalProperties": true
+          },
+          "metadata": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
           }
         },
         "required": [
@@ -3573,13 +5303,21 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "list_simulations",
       "title": "List Simulations",
-      "description": "List adversary-emulation simulation scenarios across the platform (atomic test commands grouped by threat). Pass limit (default 50, max 200).",
+      "description": "DEPRECATED (generation stopped 2026-08-03; archived rows only). List adversary-emulation simulation scenarios across the platform (atomic test commands grouped by threat). `total` / `total_simulations` are CORPUS-wide; the page you got is `returned` / `page_simulations`, and `has_more` + `next_offset` walk the rest. The `correlation` block (shared_techniques, attack_chain_similarities, platform/tactic coverage) is computed over the RETURNED PAGE only — it carries scope:\"page\" and changes with limit. Pass limit (default 50, max 200) and offset. include_facets=true adds the corpus filter vocabulary (~20 KB of actor/nation/category strings) — off by default. Prefer get_flow_coverage and get_attack_flow — ATT&CK Flows replaced simulations.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "limit": {
             "type": "number",
-            "description": "Max results (default 50, max 200)"
+            "description": "Max threats in this page (default 50, max 200)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Row offset for paging (default 0). Use next_offset from the previous response."
+          },
+          "include_facets": {
+            "type": "boolean",
+            "description": "Include the corpus filter vocabulary (filter_meta). Default false — it is ~20 KB and does not shrink with limit."
           }
         }
       },
@@ -3597,11 +5335,36 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "array",
             "items": {}
           },
+          "returned": {
+            "type": "integer",
+            "description": "Threats in THIS page."
+          },
           "total": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Corpus-wide threats that have simulations."
           },
           "total_simulations": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Corpus-wide simulation rows."
+          },
+          "page_simulations": {
+            "type": "integer",
+            "description": "Simulation rows across the returned page only."
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "deprecated": {
+            "type": "boolean"
+          },
+          "generation_stopped": {
+            "type": "string"
           },
           "filter_meta": {
             "type": "object",
@@ -3610,7 +5373,14 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "correlation": {
             "type": "object",
-            "properties": {},
+            "properties": {
+              "scope": {
+                "type": "string"
+              },
+              "computed_over_threats": {
+                "type": "integer"
+              }
+            },
             "additionalProperties": true
           }
         },
@@ -3620,7 +5390,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_threat_transcripts",
       "title": "Get Threat Transcripts",
-      "description": "Get the AI agent analysis transcripts for a threat — the step-by-step reasoning the research agents produced while profiling it.",
+      "description": "Get the PIPELINE PROVENANCE record for a threat — how its profile was produced, not analysis of the threat itself. Returns the 7 pipeline phases (HUNT/RESEARCH/SIMULATION/DETECT/PUBLISH/CORRELATION/TRANSCRIPT) with per-phase timing, the quality gates and their PASS/FAIL metrics (tag/technique/IOC/reference counts), an overall quality score, the inter-agent handoff log, and correlation_highlights (related threat ids and the high-frequency IOCs that linked them). The handoff messages are routing stubs and file pointers, NOT analyst prose — do not expect written reasoning about the adversary. Use this to judge how thoroughly a threat was worked and to find its related-threat/IOC leads; use get_threat or get_threat_enrichment for the analysis, and get_attribution_evidence for why it is attributed.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3648,7 +5418,42 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "transcripts": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "generated_by": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Pipeline quality score."
+                },
+                "phases": {
+                  "type": "array",
+                  "items": {}
+                },
+                "signals": {
+                  "type": "array",
+                  "items": {}
+                },
+                "messages": {
+                  "type": "array",
+                  "items": {}
+                },
+                "summary": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": true
+            }
           },
           "count": {
             "type": "integer"
@@ -3663,17 +5468,17 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_mitre_gap_analysis",
       "title": "MITRE Gap Analysis",
-      "description": "Prioritized list of MITRE ATT&CK techniques with the weakest detection coverage (detection debt), so you can target where to build detections next. Optionally filter by tactic.",
+      "description": "Prioritized list of MITRE ATT&CK techniques with the weakest detection coverage (detection debt), ranked by debt_score = attributed threats / (1 + detection rules mapping the technique or its parent), scaled by exploitability (max EPSS / KEV of the CVEs its threats weaponize) and rarity. Higher = more exposure with less rule coverage. Filter by tactic (spelling-insensitive: \"execution\", \"Execution\" and \"Execution (ICS)\" all match) and cap with limit; summary.gaps/coverage_pct describe the FILTERED corpus, not the returned page.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "tactic": {
             "type": "string",
-            "description": "Filter to one ATT&CK tactic (e.g. \"execution\")"
+            "description": "Filter to one ATT&CK tactic (e.g. \"execution\", \"defense-evasion\", \"command-and-control\"). An unmatched value returns summary.available_tactics."
           },
           "limit": {
             "type": "number",
-            "description": "Max techniques (default 20, max 100)"
+            "description": "Max techniques (default 20, max 100). Rows come back debt_score-descending, so limit=N is the top-N worst."
           }
         }
       },
@@ -3693,19 +5498,36 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "type": "object",
               "properties": {
                 "technique_id": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Pass to get_mitre_technique."
                 },
                 "technique_name": {
                   "type": "string"
                 },
                 "debt_score": {
-                  "type": "number"
+                  "type": "number",
+                  "description": "Ranking unit. Higher = weaker coverage against more exposure; see summary.scoring."
                 },
                 "priority_label": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "critical | high | medium | low, banded off debt_score."
                 },
                 "is_covered": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "description": "True when at least one detection maps this technique (or its parent) in detections.mitre_mapping."
+                },
+                "detection_count": {
+                  "type": "integer",
+                  "description": "Rules mapping this technique or its parent — NOT detections on threats that merely share it."
+                },
+                "threat_exposure": {
+                  "type": "integer"
+                },
+                "epss_max": {
+                  "type": "number"
+                },
+                "kev_exposure": {
+                  "type": "integer"
                 },
                 "tactic": {
                   "type": "string"
@@ -3718,7 +5540,14 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "object",
             "properties": {
               "total": {
+                "type": "integer",
+                "description": "Techniques matching the tactic filter (the ranking denominator), not the page size."
+              },
+              "returned": {
                 "type": "integer"
+              },
+              "has_more": {
+                "type": "boolean"
               },
               "covered": {
                 "type": "integer"
@@ -3728,6 +5557,35 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               },
               "coverage_pct": {
                 "type": "number"
+              },
+              "by_priority": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "by_tactic": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "tactic_filter": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "corpus_total": {
+                "type": "integer"
+              },
+              "available_tactics": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scoring": {
+                "type": "string",
+                "description": "States what debt_score counts."
               }
             },
             "additionalProperties": true
@@ -3748,7 +5606,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_enrichment_overview",
       "title": "Enrichment Overview",
-      "description": "Health and coverage overview of the enrichment sources (CVE/EPSS/KEV, IOC reputation, DNS, etc.) feeding the platform.",
+      "description": "Health and coverage of the enrichment LANES feeding the platform, one row each: cve_details, threat_iocs, detections, mitre_attack, c2_intel, dns_enrichment, tl_osint_scan, osint_blocklist_liveness. EPSS and KEV are NOT separate lanes - they are fields inside cve_details (whose hit_rate is the share of CVEs carrying both CVSS v3 and EPSS), and there is no IOC-reputation lane; the nearest signals are osint_blocklist_liveness and tl_osint_scan. Each lane's hit_rate has its OWN definition (they are not comparable to each other) and coverage_basis distinguishes 'measured_zero' from 'not_measured' - c2_intel really is 0% corpus coverage, because c2_correlations_v2 has no populated threat_id. This is a nightly snapshot: read as_of/stale_hours before treating it as current.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -3769,17 +5627,75 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "type": "object",
               "properties": {
                 "source": {
+                  "type": "string",
+                  "description": "Lane name (alias of source_name)."
+                },
+                "source_name": {
                   "type": "string"
                 },
                 "total_events": {
                   "type": "integer"
                 },
+                "unique_entities": {
+                  "type": "integer"
+                },
                 "hit_rate": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "PER-LANE definition, not comparable across lanes. NULL = not measurable for this lane."
+                },
+                "coverage_pct": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Share of the corpus this lane reaches. Read WITH coverage_basis."
+                },
+                "coverage_basis": {
+                  "type": "string",
+                  "description": "'measured' | 'measured_zero' (really zero) | 'not_measured' (never computed) - the two used to be indistinguishable."
+                },
+                "hit_rate_basis": {
+                  "type": "string",
+                  "description": "'measured' | 'not_measured'."
+                },
+                "avg_enrichment_fields": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "last_event_time": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "provenance": {
+                  "type": "string",
+                  "description": "'native_d1' = computed from our own tables; 'harness_tl_osint_scan' = community-sourced, corroborating only."
+                },
+                "updated_at": {
+                  "type": "string"
                 }
               },
               "additionalProperties": true
             }
+          },
+          "as_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Newest row timestamp - this is a nightly snapshot, not a live read."
+          },
+          "stale_hours": {
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "summary": {
             "type": "object",
@@ -3791,10 +5707,30 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 "type": "integer"
               },
               "avg_hit_rate": {
-                "type": "number"
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Averaged ONLY over lanes reporting a real hit_rate."
+              },
+              "measured_zero_coverage": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unmeasured_coverage": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "additionalProperties": true
+          },
+          "note": {
+            "type": "string",
+            "description": "States which advertised sources are lanes and which are fields of a lane."
           }
         },
         "additionalProperties": true
@@ -3803,7 +5739,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_roadmap",
       "title": "Get Roadmap",
-      "description": "Get the Threadlinqs Intelligence platform roadmap — shipped, in-progress, and planned capabilities.",
+      "description": "Get the Threadlinqs Intelligence platform roadmap: `completed`, `in_progress` and `ideas` (planned), with `counts`, `generated_at` and `as_of`. WARNING: this table is hand-maintained and has not been updated since Feb 2026 — the response carries stale_days and a warning, and several items still marked \"planned\" have since shipped. Do not report an item as unbuilt on this basis; confirm with get_started (live tool catalog), get_platform_stats or get_engine_status.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -3822,9 +5758,55 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "array",
             "items": {}
           },
+          "in_progress": {
+            "type": "array",
+            "items": {}
+          },
           "completed": {
             "type": "array",
             "items": {}
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "ideas": {
+                "type": "integer"
+              },
+              "in_progress": {
+                "type": "integer"
+              },
+              "completed": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "generated_at": {
+            "type": "string",
+            "description": "When this response was produced."
+          },
+          "as_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Last date the roadmap table itself was edited."
+          },
+          "stale_days": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": "string",
+            "description": "Present when stale; says the statuses are unreconciled."
           }
         },
         "additionalProperties": true
@@ -3833,7 +5815,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_changelog",
       "title": "Get Changelog",
-      "description": "Get the recent platform changelog (new threats, detections, features). Pass limit (default 20, max 100).",
+      "description": "Get the platform changelog (new threats, detections, features), strictly newest-first by date. Pass limit (default 20, max 100). NOTE: this is a hand-maintained release feed, not a deploy log — it stopped being written in Feb 2026, so the response carries latest_entry_date / stale_days / a warning. For what the platform actually looks like NOW use get_platform_stats (live corpus counts) and get_engine_status (pipeline state); do not answer \"what changed recently\" from this alone.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3853,12 +5835,21 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
       "outputSchema": {
         "type": "object",
         "properties": {
-          "result": {
+          "entries": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
                 "id": {},
+                "version": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
                 "changes": {
                   "type": "array",
                   "items": {}
@@ -3866,10 +5857,42 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               },
               "additionalProperties": true
             }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "latest_entry_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date of the newest entry — the feed cut-off."
+          },
+          "stale_days": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": "string",
+            "description": "Present when the feed is stale; says what it does NOT cover."
           }
         },
         "required": [
-          "result"
+          "entries"
         ],
         "additionalProperties": true
       }
@@ -3965,7 +5988,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_threat_bundle",
       "title": "Get Threat Bundle",
-      "description": "One-shot dossier for a threat: the full threat detail plus its simulations and analysis transcripts (include=\"summary\" returns just the threat). Fewer round-trips than calling get_threat + get_threat_simulations + get_threat_transcripts separately.",
+      "description": "One-shot dossier for a threat: threat detail plus its simulations and pipeline transcripts (include=\"summary\" returns just the threat). Fewer round-trips than get_threat + get_threat_simulations + get_threat_transcripts separately. The threat is the same bounded projection get_threat returns by default — call get_threat(id, sections=\"all\") for the unabridged record.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3976,6 +5999,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           "include": {
             "type": "string",
             "description": "\"full\" (default) bundles simulations + transcripts; \"summary\" returns just the threat"
+          },
+          "simulation_limit": {
+            "type": "integer",
+            "description": "Playbooks to embed, 1-20 (default 3). Each carries full command text; raise only if you need more than the newest few."
           }
         },
         "required": [
@@ -4033,13 +6060,21 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_threat_hunting_bundle",
       "title": "Threat Hunting Bundle",
-      "description": "Flagship one-call hunting dossier for a threat: full detail + similar threats + simulations + infrastructure pivots, composed server-side. Best single tool to scope a hunt around one threat.",
+      "description": "Flagship one-call hunting dossier for a threat: threat detail + similar threats + simulations + infrastructure pivots, composed server-side. Best single tool to scope a hunt around one threat. Every section is bounded so the bundle fits in one response — raise simulation_limit / pivot_limit, or call get_infrastructure_pivots and get_threat directly, when you need the full lists.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "threat_id": {
             "type": "string",
             "description": "Threat ID (e.g. TL-2026-0042)"
+          },
+          "simulation_limit": {
+            "type": "integer",
+            "description": "Playbooks to embed, 1-20 (default 3)."
+          },
+          "pivot_limit": {
+            "type": "integer",
+            "description": "Infrastructure pivots to embed, 1-200 (default 25). One threat can carry 150+; get_infrastructure_pivots returns the full set."
           }
         },
         "required": [
@@ -4102,7 +6137,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_daily_intel_bundle",
       "title": "Daily Intel Bundle",
-      "description": "One-shot \"what happened\" bundle: the day's debrief (latest by default, or pass date) plus platform stats, the top recent threats, and the correlations overview.",
+      "description": "One-shot \"what happened\" bundle: the day's debrief (latest by default, or pass date) plus platform stats, the top recent threats as LEAN summary rows, and the correlations overview. Drill into any listed threat with get_threat(id).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4142,13 +6177,17 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "description": "LEAN summary rows (the search_threats shape) — call get_threat(id) for a dossier."
           },
           "correlations_overview": {
             "type": [
               "object",
               "null"
             ]
+          },
+          "detail_hint": {
+            "type": "string"
           }
         },
         "additionalProperties": true
@@ -4157,7 +6196,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "bulk_get_threats",
       "title": "Bulk Get Threats",
-      "description": "Fetch up to 20 threats by ID in one call. Returns {threats, missing, count}. Use when you already have a list of threat IDs.",
+      "description": "Fetch up to 20 threats by ID in one call. Returns LEAN rows by default (identity, severity, attribution, CVEs, targets + `counts` for MITRE/IOCs/detections/timeline/tags), which is what makes 20 ids actually fit in one response. `count` is the number of rows actually present in threats[]; unresolvable ids come back in `missing`. detail=\"full\" returns whole dossiers but is capped at 3 ids per call (a full dossier is ~68 KB) — the overflow is named in `deferred_ids`, never silently dropped. Drill into any row with get_threat(id).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4167,6 +6206,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "type": "string"
             },
             "description": "Threat IDs (max 20)"
+          },
+          "detail": {
+            "type": "string",
+            "description": "\"summary\" (default, all 20 fit) | \"full\" (whole dossiers, max 3 ids per call)"
           }
         },
         "required": [
@@ -4206,12 +6249,35 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             }
           },
           "count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Rows actually present in threats[] — safe to iterate on."
+          },
+          "requested": {
+            "type": "integer",
+            "description": "How many ids the caller supplied."
+          },
+          "detail": {
+            "type": "string",
+            "description": "\"summary\" | \"full\" — which row shape threats[] carries."
+          },
+          "deferred_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Ids NOT fetched because detail=\"full\" is batch-capped. Call again with these."
+            }
+          },
+          "deferred_reason": {
+            "type": "string"
+          },
+          "detail_hint": {
+            "type": "string"
           }
         },
         "required": [
           "threats",
-          "missing"
+          "missing",
+          "count"
         ],
         "additionalProperties": true
       }
@@ -4277,7 +6343,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_actor_intelligence",
       "title": "Actor Intelligence",
-      "description": "Composite intelligence picture for a threat actor: the full actor profile plus cross-actor attribution correlations in one call.",
+      "description": "Composite intelligence picture for a threat actor: the actor profile (threats, MITRE, IOC counts, CVEs, tooling, targets), the known actor_relationships baseline, plus cross-actor attribution SCOPED TO THIS ACTOR — only shared entities whose actor list names it or one of its aliases, ranked by attribution belief (shared malware/infrastructure outranks commodity TTPs). Use it to answer \"who else does this actor overlap with, and on what evidence\".",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4326,12 +6392,158 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "array",
             "items": {}
           },
+          "actor_relationships": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "related_name": {
+                  "type": "string"
+                },
+                "rel_type": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
           "cross_actor_attribution": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Shared entities across actors, or null when the attribution engine has nothing."
+            "type": "object",
+            "properties": {
+              "scoped_to": {
+                "type": "string",
+                "description": "The queried actor. Rows below name ONLY this actor or an alias — never the whole corpus."
+              },
+              "shared_entities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "entity_type": {
+                      "type": "string"
+                    },
+                    "entity_value": {
+                      "type": "string"
+                    },
+                    "belief": {
+                      "type": "number"
+                    },
+                    "belief_label": {
+                      "type": "string",
+                      "description": "strong | moderate | weak | commodity — commodity is weak attribution signal."
+                    },
+                    "actor_list": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "actor_count": {
+                      "type": "integer",
+                      "description": "True co-actor count; actor_list is clipped."
+                    },
+                    "threat_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "threat_count": {
+                      "type": "integer"
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {}
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "counts": {
+                "type": "object",
+                "properties": {
+                  "matched": {
+                    "type": "integer"
+                  },
+                  "returned": {
+                    "type": "integer"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  },
+                  "by_belief": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": true
+                  },
+                  "by_type": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": true
+                  },
+                  "co_actor_count": {
+                    "type": "integer",
+                    "description": "Every actor touched by ANY matched row, commodity TTPs included — a breadth number, not an answer."
+                  },
+                  "co_actors_returned": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "co_actors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "actor": {
+                      "type": "string",
+                      "description": "Pass to get_actor / get_actor_intelligence."
+                    },
+                    "shared_entities": {
+                      "type": "integer"
+                    },
+                    "max_belief": {
+                      "type": "number"
+                    },
+                    "strongest": {
+                      "type": "object",
+                      "properties": {
+                        "entity_type": {
+                          "type": "string"
+                        },
+                        "entity_value": {
+                          "type": "string"
+                        },
+                        "belief_label": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": true
+                    },
+                    "by_type": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "corpus": {
+                "type": "object",
+                "properties": {
+                  "total_shared": {
+                    "type": "integer"
+                  },
+                  "unique_actors": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
           }
         },
         "additionalProperties": true
@@ -4349,7 +6561,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_cve_intelligence",
       "title": "CVE Intelligence",
-      "description": "Composite CVE dossier: the enriched CVE detail plus exploitation-velocity context and any detections that reference it, in one call.",
+      "description": "Composite CVE dossier in one call: the enriched CVE detail, the threats that reference it (authoritative join — cve.threat_ids is reconciled to it), the attributed actors and MITRE techniques behind those threats, weaponization velocity for THIS CVE with its rank against the corpus, CWE-sibling related CVEs, and detections that name it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4377,15 +6589,134 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "properties": {
               "cve_id": {
                 "type": "string"
+              },
+              "threat_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Reconciled from threats.cve_list — the authoritative join. Pass to get_threat."
+                }
+              },
+              "threat_ids_source": {
+                "type": "string"
+              },
+              "threat_ids_note": {
+                "type": "string",
+                "description": "Present only when the derived cve_details reverse index disagreed."
               }
             },
             "additionalProperties": true
           },
+          "threats": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "severity": {
+                  "type": "string"
+                },
+                "actor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "actors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actor": {
+                  "type": "string"
+                },
+                "threat_count": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "mitre": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technique_id": {
+                  "type": "string"
+                },
+                "technique": {
+                  "type": "string"
+                },
+                "tactic": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "related_cves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cve_id": {
+                  "type": "string"
+                },
+                "is_kev": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
           "velocity_data": {
-            "type": [
-              "object",
-              "null"
-            ]
+            "type": "object",
+            "properties": {
+              "cve": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The velocity row for THIS CVE (velocity_days = publication → first tracked threat), or null when it has no tracked linkage."
+              },
+              "rank": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "{faster_than_pct, position, of} — where this CVE sits in the corpus velocity distribution."
+              },
+              "cohort_fastest": {
+                "type": "array",
+                "items": {}
+              },
+              "corpus": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer"
+                  },
+                  "avg_velocity": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           },
           "related_detections": {
             "type": [
@@ -4447,7 +6778,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "hunt",
       "title": "Hunt (TLQL)",
-      "description": "Run a deterministic SIEM-style query over the pre-joined observation index (~106k rows across tool, malware, ioc, mitre, cve, attribution, dns and infra observations). Use this INSTEAD of chaining many search_threats calls when the question is an aggregate (\"how many X grouped by Y\") or crosses observation types (\"threats using tool A that also have IOC type B\"). Append \"| stats count by <field>\" to aggregate; without it you get matching rows. Call hunt_schema first if you do not know the field names.",
+      "description": "Run a deterministic SIEM-style query over the pre-joined observation index (~106k rows across tool, malware, ioc, mitre, cve, attribution, dns and infra observations). Use this INSTEAD of chaining many search_threats calls when the question is an aggregate (\"how many X grouped by Y\") or crosses observation types (\"threats using tool A that also have IOC type B\"). Append \"| stats count by <field>\" to aggregate; without it you get matching rows. A threat contributes one row per observation, so for \"how many THREATS\" use \"| stats count_distinct(threat) by <field>\" — plain count double-counts. Operators are = != > < >= <= LIKE CONTAINS IN \"NOT IN\"; quote any value with a hyphen (cve = \"CVE-2024-3400\"). Call hunt_schema first if you do not know the field names.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4457,7 +6788,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "limit": {
             "type": "integer",
-            "description": "Row cap for non-stats queries (default 50, max 150). Ignored in stats mode."
+            "description": "Row cap for non-stats queries (default 50, max 100). In stats mode it caps the number of GROUPS returned. Check `has_more` in the response."
           }
         },
         "required": [
@@ -4506,6 +6837,13 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "additionalProperties": true
             }
           },
+          "limit": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "True when rows (or, in stats mode, groups) were cut at the limit."
+          },
           "columns": {
             "type": "array",
             "items": {
@@ -4513,7 +6851,8 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             }
           },
           "count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Rows RETURNED, not rows matched."
           },
           "rows": {
             "type": "array",
@@ -4661,7 +7000,16 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "operators": {
                 "type": "array",
                 "items": {
-                  "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
                 }
               },
               "combinators": {
@@ -4669,6 +7017,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 "items": {
                   "type": "string"
                 }
+              },
+              "quoting": {
+                "type": "string",
+                "description": "When a value must be quoted — read this before writing a CVE or relative-time filter."
               },
               "stats": {
                 "type": "object",
@@ -4679,7 +7031,22 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                   "functions": {
                     "type": "array",
                     "items": {
-                      "type": "string"
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "aliases": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": true
                     }
                   }
                 },
@@ -5039,7 +7406,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_entity_profile",
       "title": "Entity Profile",
-      "description": "One-call dossier for any node in the intelligence graph — threat, technique, actor, IOC or CVE. Returns its centrality/pivot rank, top graph neighbours with edge fidelity, and type-specific rollups (linked threats, techniques with risk scores, IOCs with consensus and rarity, campaigns, related CVEs). Best token-per-call ratio in the graph family: replaces five or six separate lookups.",
+      "description": "One-call dossier for any node in the intelligence graph — threat, technique, actor, IOC or CVE. Returns its centrality/pivot rank, top graph neighbours with edge fidelity, and type-specific rollups (linked threats, techniques with risk scores, IOCs with consensus and rarity, campaigns, related CVEs). Best token-per-call ratio in the graph family: replaces five or six separate lookups. Neighbours on the NPMI edge types also carry raw pmi, co_occurrence_count and the marginals {c, df_actor, df_tech, N}. For technique and ioc nodes the response includes `rarity` — corpus_df (how many threats mention it) against corpus_n — which is what separates a distinctive shared technique from background noise; check `top_neighbors_truncated` and raise `limit` before concluding a neighbour is absent.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5056,6 +7423,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           "node_id": {
             "type": "string",
             "description": "The entity id/value (TL- id, T-number, actor name, IOC value, or CVE id)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Neighbours in top_neighbors (default 20, max 100 over MCP). They are ordered by fidelity, so the rare low-fidelity edges are the ones a small limit drops."
           }
         },
         "required": [
@@ -5096,7 +7467,84 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "top_neighbors": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "edge_type": {
+                  "type": "string"
+                },
+                "fidelity": {
+                  "type": "number",
+                  "description": "Rounded 0-100. Use pmi to separate edges that share a fidelity."
+                },
+                "pmi": {
+                  "type": "number",
+                  "description": "NPMI edge types only (actor_technique, technique_cooccurrence)."
+                },
+                "co_occurrence_count": {
+                  "type": "integer"
+                },
+                "marginals": {
+                  "type": "object",
+                  "properties": {
+                    "c": {
+                      "type": "integer"
+                    },
+                    "df_actor": {
+                      "type": "integer"
+                    },
+                    "df_tech": {
+                      "type": "integer"
+                    },
+                    "N": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "top_neighbors_limit": {
+            "type": "integer"
+          },
+          "top_neighbors_truncated": {
+            "type": "boolean",
+            "description": "True when more neighbours exist than were returned — raise `limit`."
+          },
+          "rarity": {
+            "type": "object",
+            "properties": {
+              "corpus_df": {
+                "type": "integer",
+                "description": "Threats mentioning this technique/IOC."
+              },
+              "corpus_n": {
+                "type": "integer",
+                "description": "Threats in the corpus."
+              },
+              "df_ratio": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "description": "graph_tech_df | graph_ioc_df (published-gen, matches the stored pmi denominators) or live_count."
+              },
+              "live_df": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
           },
           "threats": {
             "type": "array",
@@ -5193,7 +7641,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_graph_campaigns",
       "title": "Graph Campaigns",
-      "description": "Campaign clusters the engine assembled from the similarity graph (connected components + label propagation): label, member count, cohesion, member threat IDs, top actors, top techniques, shared IOCs and nation-states. Distinct from get_campaign_intelligence, which looks up a NAMED campaign mentioned in threat text — this one reports clusters the engine derived itself.",
+      "description": "Campaign clusters the engine assembled from the similarity graph (connected components + label propagation): label, cohesion, top actors/techniques/IOCs/nation-states, and per-member {title, created_at, category, threat_actor}. Each cluster carries duplicate_risk plus its evidence (distinct_member_dates, date_span_days, shared_title_tokens) — a similarity-derived cluster of one event documented several times looks identical to a real multi-event campaign until you read those. Distinct from get_campaign_intelligence (looks up a NAMED campaign from threat text) and from list_campaigns (the roster of named campaigns); this one reports clusters the engine derived itself.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5266,13 +7714,13 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_technique_rules",
       "title": "Technique Co-occurrence Rules",
-      "description": "MITRE ATT&CK technique PAIRS mined from the corpus with support, confidence and lift — which techniques travel together far above chance. Complements predict_mitre_transitions exactly: that answers sequence (what follows what), this answers co-occurrence (what appears alongside what).",
+      "description": "MITRE ATT&CK technique PAIRS mined from the corpus with support, confidence and lift — which techniques travel together far above chance. Each rule carries both technique ids AND their ATT&CK names (technique_a_name / technique_b_name), so a rule is readable without a follow-up lookup. Complements predict_mitre_transitions exactly: that answers sequence (what follows what), this answers co-occurrence (what appears alongside what). Rules come back lift-descending; `summary.total_rules` reports how many exist in total, so `has_more` tells you whether the tail was cut. Note minSupport 0.02 — a pair must appear in ~2% of threats to be mined at all, so rare-technique pairs are structurally absent rather than uncorrelated.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "limit": {
             "type": "integer",
-            "description": "Default 50, max 200."
+            "description": "Default 50, max 100."
           }
         }
       },
@@ -5292,10 +7740,26 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
               "type": "object",
               "properties": {
                 "technique_a": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Pass to get_mitre_technique."
                 },
                 "technique_b": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Pass to get_mitre_technique."
+                },
+                "technique_a_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "ATT&CK name for technique_a (null if the catalog does not know the id)."
+                },
+                "technique_b_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "ATT&CK name for technique_b (null if the catalog does not know the id)."
                 },
                 "cooccurrence_count": {
                   "type": "integer"
@@ -5320,7 +7784,17 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": "object",
             "properties": {
               "total": {
+                "type": "integer",
+                "description": "Rules on THIS page (legacy field — use total_rules for the corpus count)."
+              },
+              "total_rules": {
                 "type": "integer"
+              },
+              "returned": {
+                "type": "integer"
+              },
+              "has_more": {
+                "type": "boolean"
               },
               "max_lift": {
                 "type": "number"
@@ -5700,7 +8174,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
     {
       "name": "get_correlation_subgraph",
       "title": "Correlation Subgraph",
-      "description": "The N-hop neighbourhood around any graph node — nodes, edges, and each edge's fidelity — for incremental exploration of the correlation graph. Start at depth 1 and expand: a whole-corpus graph exceeds every response budget. For a pre-aggregated single-entity view prefer get_entity_profile, which is cheaper and usually what you want; use this when you need the actual edge topology.",
+      "description": "The N-hop neighbourhood around any graph node — nodes, edges, and each edge's fidelity — for incremental exploration of the correlation graph. Start at depth 1 and expand: a whole-corpus graph exceeds every response budget. For a pre-aggregated single-entity view prefer get_entity_profile, which is cheaper and usually what you want; use this when you need the actual edge topology. Edges of the NPMI types (actor_technique, technique_cooccurrence) also carry the raw pmi, co_occurrence_count and the marginals {c, df_actor, df_tech, N} the score was computed from — use those, not the rounded fidelity, to compare two edges.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5724,7 +8198,17 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "min_fidelity": {
             "type": "number",
-            "description": "Drop edges below this fidelity (0-1)."
+            "description": "Drop edges below this fidelity. Scale is 0-100, NOT 0-1 — typical NPMI edges sit between 5 and 30, so 0.5 filters nothing."
+          },
+          "edge_type": {
+            "type": "string",
+            "enum": [
+              "actor_technique",
+              "technique_cooccurrence",
+              "ioc_threat",
+              "threat_similarity"
+            ],
+            "description": "Keep only edges of this type (also prunes the traversal, so it changes which nodes are reachable). Omit for all types."
           },
           "limit_nodes": {
             "type": "integer",
@@ -5779,17 +8263,64 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
                 "target": {
                   "type": "string"
                 },
-                "fidelity": {
-                  "type": "number"
+                "fidelity_score": {
+                  "type": "number",
+                  "description": "Rounded 0-100."
                 },
                 "edge_type": {
                   "type": "string"
+                },
+                "weight_norm": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "pmi": {
+                  "type": "number",
+                  "description": "NPMI edge types only (actor_technique, technique_cooccurrence)."
+                },
+                "co_occurrence_count": {
+                  "type": "integer"
+                },
+                "marginals": {
+                  "type": "object",
+                  "properties": {
+                    "c": {
+                      "type": "integer"
+                    },
+                    "df_actor": {
+                      "type": "integer"
+                    },
+                    "df_tech": {
+                      "type": "integer"
+                    },
+                    "N": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
                 }
               },
               "additionalProperties": true
             }
           },
-          "params": {
+          "counts": {
+            "type": "object",
+            "properties": {
+              "nodes": {
+                "type": "integer"
+              },
+              "edges": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "params_echo": {
             "type": "object",
             "properties": {},
             "additionalProperties": true

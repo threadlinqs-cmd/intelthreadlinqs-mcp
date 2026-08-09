@@ -4,7 +4,7 @@
  *
  * WHY THIS IS GENERATED
  * ---------------------
- * `references/tools.md` documents all 73 tools with their real argument names. Hand-copying
+ * `references/tools.md` documents every tool in the live catalog with its real argument names. Hand-copying
  * those is how the npm README ended up documenting `predict_attack_path` and
  * `get_actor_profile` — tools that do not exist — and giving `generate_c2_blocklist` three
  * arguments when its schema takes none. A skill that teaches an agent to call a nonexistent
@@ -51,18 +51,19 @@ if (tools.length === 0) {
 /** Lane assignment. Every tool must land in exactly one lane — asserted below. */
 const LANES = [
   ["L0 · Orient", "Cheap situational calls. Do not open every session with all of these.", ["get_started", "health", "get_platform_stats", "get_engine_status", "get_enrichment_overview", "get_changelog", "get_roadmap"]],
-  ["L1 · Find", "Four different search modes. They are NOT interchangeable — boolean-exact, vector-rerank, SIEM-aggregate, alias-canonicalise.", ["search_threats", "search_corpus_semantic", "hunt", "hunt_schema", "resolve_entity", "list_threat_categories", "get_recent_threats"]],
+  ["L1 · Find", "Four different search modes. They are NOT interchangeable — boolean-exact, vector-rerank, SIEM-aggregate, alias-canonicalise.", ["search_threats", "search_corpus_semantic", "hunt", "hunt_schema", "resolve_entity", "get_entity_aliases", "list_threat_categories", "get_recent_threats"]],
   ["L2 · Threat dossier", "Prefer a bundle over a chain.", ["get_threat", "get_threat_enrichment", "get_threat_bundle", "get_threat_hunting_bundle", "bulk_get_threats", "get_threat_transcripts"]],
-  ["L3 · Actor & attribution", "Always check evidence state before repeating an attribution.", ["get_actor", "search_actors", "get_actor_intelligence", "get_attribution_evidence", "get_attribution_coverage"]],
+  ["L3 · Actor & attribution", "Always check evidence state before repeating an attribution.", ["get_actor", "search_actors", "get_actor_intelligence", "get_actor_relationships", "get_attribution_evidence", "get_attribution_coverage"]],
   ["L4 · IOC & infrastructure", "Exact value → intelligence; substring → search.", ["search_iocs", "get_ioc_intelligence", "get_ioc_dns", "get_ioc_blast_radius", "get_infrastructure_pivots", "get_c2", "get_c2_dns_intel", "generate_c2_blocklist"]],
   ["L5 · Vulnerability", "Rank by exploitation, not CVSS.", ["search_vulnerabilities", "get_cve", "get_cve_intelligence", "bulk_get_cves", "get_cwe"]],
   ["L6 · Detection & purple team", "Only some of these return actual rule text.", ["get_detections", "search_detections", "get_detection_detail", "export_detection", "get_threat_simulations", "list_simulations", "get_mitre_gap_analysis"]],
   ["L7 · MITRE ATT&CK", "predict_mitre_transitions is sequence; get_technique_rules is co-occurrence.", ["get_mitre_coverage", "get_mitre_technique", "predict_mitre_transitions", "get_technique_rules"]],
   ["L8 · Correlation graph", "Start shallow. Depth multiplies node count.", ["get_similar_threats", "explain_correlation", "get_correlation_path", "get_entity_profile", "get_correlation_subgraph", "get_pivotal_entities", "get_graph_campaigns", "get_correlations"]],
-  ["L9 · Malware / tool / campaign", "Route by entity kind; resolve_entity when unsure.", ["get_malware_intelligence", "get_tool_intelligence", "get_campaign_intelligence"]],
-  ["L10 · Community OSINT", "Corroborating, never authoritative.", ["get_osint", "search_xscan_indicators", "get_osint_trends", "get_community_campaigns"]],
-  ["L11 · Reporting & landscape", "One bundle usually beats four calls.", ["get_daily_intel_bundle", "get_latest_debrief", "get_debrief", "list_debriefs", "get_landscape_briefing", "get_daily_theme", "get_threat_level"]],
-  ["L12 · Standards export", "For handing data to another system.", ["export_stix", "export_attack_navigator"]],
+  ["L9 · Attack flow, D3FEND & ATLAS", "Authored causal DAGs and their defensive twin. Flow similarity is ordered-sequence, NOT the blended correlation score — the channel is still gated off.", ["get_attack_flow", "get_flow_similar_threats", "get_flow_coverage", "get_d3fend_posture", "get_atlas_intelligence"]],
+  ["L10 · Malware / tool / campaign", "Route by entity kind; resolve_entity when unsure.", ["get_malware_intelligence", "get_tool_intelligence", "get_campaign_intelligence", "list_campaigns"]],
+  ["L11 · Community OSINT", "Corroborating, never authoritative.", ["get_osint", "search_xscan_indicators", "get_osint_trends", "get_community_campaigns"]],
+  ["L12 · Reporting & landscape", "One bundle usually beats four calls.", ["get_daily_intel_bundle", "get_latest_debrief", "get_debrief", "list_debriefs", "get_landscape_briefing", "get_daily_theme", "get_threat_level"]],
+  ["L13 · Standards export", "For handing data to another system.", ["export_stix", "export_attack_navigator"]],
 ];
 
 const byName = new Map(tools.map((t) => [t.name, t]));

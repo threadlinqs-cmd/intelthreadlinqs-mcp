@@ -57,7 +57,10 @@ if (API_BASE && !API_BASE.startsWith("https://") && !API_BASE.startsWith("http:/
   process.exit(1);
 }
 
-const SERVER_VERSION = "8.1.1";
+// Keep in lockstep with package.json / server.json / plugin.json / mcpb-build/manifest.json.
+// This one is the version the client actually SEES in the initialize handshake, and it has been
+// missed on a release before (see "fix: SERVER_VERSION 8.1.1") — npm version does not touch it.
+const SERVER_VERSION = "8.2.0";
 const MCP_ENDPOINT = `${API_BASE}/mcp`;
 const CATALOG_ENDPOINT = `${API_BASE}/mcp/catalog.json`;
 

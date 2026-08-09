@@ -1,6 +1,6 @@
 # intelthreadlinqs-mcp
 
-> MCP server for [Threadlinqs Intelligence](https://intel.threadlinqs.com) — 73 tools and 25 analyst-playbook prompts across threat intelligence, detections, IOCs, threat actors, MITRE attack-chains, C2 infrastructure, and Purple-tier composite intelligence. Drop-in for Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
+> MCP server for [Threadlinqs Intelligence](https://intel.threadlinqs.com) — 81 tools and 25 analyst-playbook prompts across threat intelligence, detections, IOCs, threat actors, MITRE attack-chains, C2 infrastructure, and Purple-tier composite intelligence. Drop-in for Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
 
 [![npm version](https://img.shields.io/npm/v/intelthreadlinqs-mcp.svg)](https://www.npmjs.com/package/intelthreadlinqs-mcp)
 [![Node](https://img.shields.io/node/v/intelthreadlinqs-mcp.svg)](https://nodejs.org/)
@@ -94,12 +94,12 @@ Sign up at [intel.threadlinqs.com](https://intel.threadlinqs.com), verify your e
 
 ## Access — Purple tier only
 
-The MCP server is a **Purple-tier feature**: **all 73 tools require a Purple or Gold subscription (tier ≥ 3)**. The server checks your key's tier at startup and warns when it is missing, invalid, or below Purple — it still starts and lists its tools so clients can introspect the catalog, but the tier is enforced server-side on every call, so gated tools return `Access denied` rather than data. There is no free or anonymous access to gated intelligence.
+The MCP server is a **Purple-tier feature**: **all 81 tools require a Purple or Gold subscription (tier ≥ 3)**. The server checks your key's tier at startup and warns when it is missing, invalid, or below Purple — it still starts and lists its tools so clients can introspect the catalog, but the tier is enforced server-side on every call, so gated tools return `Access denied` rather than data. There is no free or anonymous access to gated intelligence.
 
 | Tier | Price | MCP access |
 |---|---|---|
-| **Purple** | $11.99/mo | ✅ All 73 tools |
-| **Gold** | Custom | ✅ All 73 tools (enterprise — contact sales) |
+| **Purple** | $11.99/mo | ✅ All 81 tools |
+| **Gold** | Custom | ✅ All 81 tools (team — contact sales) |
 | Lower tiers | — | ❌ No MCP access (the public website + REST API keep their own free Blue tier) |
 
 A **7-day Purple free trial** is available at checkout on the pricing page — it is not granted by signup alone. Tool calls enforce the tier server-side and return a structured 403 if your subscription lapses.
@@ -170,7 +170,7 @@ answers honest. Generated from the live catalog, so its tool reference cannot dr
 
 ## Prompts — 25 analyst playbooks
 
-Prompts are pre-built workflows that orchestrate the tools for you. Rather than working out which of 73 tools to chain, invoke a playbook and the agent gets an ordered, argument-correct plan. Between them they reach **every tool on the server**, so an agent that only reads `prompts/list` still finds the whole surface.
+Prompts are pre-built workflows that orchestrate the tools for you. Rather than working out which of 81 tools to chain, invoke a playbook and the agent gets an ordered, argument-correct plan. Between them they reach **every tool on the server**, so an agent that only reads `prompts/list` still finds the whole surface.
 
 | Playbook | What it does |
 |---|---|
@@ -202,7 +202,7 @@ Prompts are pre-built workflows that orchestrate the tools for you. Rather than 
 
 ## Full tool catalog
 
-For the complete list of 73 tools with parameters and example invocations, see the [interactive MCP documentation page](https://intel.threadlinqs.com/mcp).
+For the complete list of 81 tools with parameters and example invocations, see the [interactive MCP documentation page](https://intel.threadlinqs.com/mcp).
 
 ## Architecture
 

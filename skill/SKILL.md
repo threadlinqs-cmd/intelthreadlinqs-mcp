@@ -19,7 +19,7 @@ description: >-
 
 # Threadlinqs Intelligence MCP
 
-73 tools over a curated threat-intelligence corpus. This skill exists because the naive
+81 tools over a curated threat-intelligence corpus. This skill exists because the naive
 path through those tools is expensive and often wrong: an agent that reaches for
 `get_threat` and then chains four follow-ups is doing by hand what one composite tool does
 in a single call, and an agent that guesses an enum value gets an empty result rather than

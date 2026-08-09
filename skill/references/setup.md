@@ -1,6 +1,6 @@
 # Setup — installation and access
 
-Two transports reach the same 73 tools, the same resources, and the same prompt set. Pick one;
+Two transports reach the same 81 tools, the same resources, and the same prompt set. Pick one;
 running both at once just gives the host duplicate tool names.
 
 | | Local stdio | Remote Streamable-HTTP |
@@ -37,8 +37,8 @@ Nothing below works without one. **Tool CALLS require tier ≥ 3 (Purple or Gold
 | 0 | Unverified | no |
 | 1 | Blue (free) | no |
 | 2 | Red | no |
-| 3 | Purple ($11.99/mo) | yes — all 73 tools |
-| 4 | Gold (enterprise) | yes — all 73 tools |
+| 3 | Purple ($11.99/mo) | yes — all 81 tools |
+| 4 | Gold (team) | yes — all 81 tools |
 
 The gate is enforced server-side on every call. It is not a client setting, and no
 configuration flag bypasses it. When the trial lapses, in-flight sessions start returning
@@ -223,7 +223,7 @@ exactly this case:
 
 | Surface | Content |
 |---|---|
-| `GET https://intel.threadlinqs.com/mcp/catalog.json` | All 73 tools with full `inputSchema` + annotations, the prompt list, 14 resources, 3 resource templates, category map, server instructions |
+| `GET https://intel.threadlinqs.com/mcp/catalog.json` | All 81 tools with full `inputSchema` + annotations, the prompt list, 14 resources, 3 resource templates, category map, server instructions |
 | `GET https://intel.threadlinqs.com/mcp.md` | The same documentation as Markdown |
 | `resources/read` on a `ui://…` URI | Renderer shells only — inline HTML/CSS/JS with zero threat content, served before the gate so widgets do not render blank |
 
