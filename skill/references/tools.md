@@ -115,7 +115,7 @@ Prefer a bundle over a chain.
 
 Get the detail for a single threat by its ID (e.g. TL-2026-0042): overview, attribution, MITRE techniques, IOCs, the detection roster, timeline, targets and tags. RETRIEVABLE IN PARTS — pass `sections` to choose what comes back; the response echoes `_sections` telling you what was returned and what was omitted. By default detection RULE BODIES (SPL/KQL/Sigma) are omitted — they are ~40% of a heavy dossier and have dedicated tools (export_detection / get_detection_detail) — and `description` is trimmed to 1500 chars with `description_chars` disclosing the true length. Pass sections="all" and max_description=-1 for the complete record. For malware families, tools, sectors/regions, OS and campaigns, call get_threat_enrichment.
 
-**Arguments:** `id`**\*** _string_ — Threat ID (e.g. TL-2026-0042)<br>`sections` _string_ — CSV of sections to return. Any of: overview, attribution, mitre, iocs, detections (WITH rule bodies), detections_meta (roster only, the default), timeline, tags, targets, remediation, references, similar, updates, osint, flow, entities — or "all", or "row" (exclusive: a ~500-byte identity row plus section counts). Default: overview,attribution,mitre,iocs,detections_meta,timeline,tags,targets,similar,flow,osint<br>`max_description` _number_ — Char budget for the narrative description. Default 1500; 0 drops it; -1 returns it whole.
+**Arguments:** `id`**\*** _string_ — Threat ID (e.g. TL-2026-0042)<br>`sections` _string_ — CSV of sections to return. Any of: overview, attribution, mitre, iocs, detections (WITH rule bodies), detections_meta (roster only, the default), timeline, tags, targets, remediation, references (full bibliography), references_compact (ranked primary-first + corroboration summary, in the default), similar, updates, osint, flow, entities — or "all", or "row" (exclusive: a ~500-byte identity row plus section counts). Default: overview,attribution,mitre,iocs,detections_meta,timeline,tags,targets,similar,flow,osint,references_compact<br>`max_description` _number_ — Char budget for the narrative description. Default 1500; 0 drops it; -1 returns it whole.
 
 ### `get_threat_enrichment`
 
@@ -133,7 +133,7 @@ One-shot dossier for a threat: threat detail plus its simulations and pipeline t
 
 Flagship one-call hunting dossier for a threat: threat detail + similar threats + simulations + infrastructure pivots, composed server-side. Best single tool to scope a hunt around one threat. Every section is bounded so the bundle fits in one response — raise simulation_limit / pivot_limit, or call get_infrastructure_pivots and get_threat directly, when you need the full lists.
 
-**Arguments:** `threat_id`**\*** _string_ — Threat ID (e.g. TL-2026-0042)<br>`simulation_limit` _integer_ — Playbooks to embed, 1-20 (default 3).<br>`pivot_limit` _integer_ — Infrastructure pivots to embed, 1-200 (default 25). One threat can carry 150+; get_infrastructure_pivots returns the full set.
+**Arguments:** `threat_id`**\*** _string_ — Threat ID (e.g. TL-2026-0042)<br>`simulation_limit` _integer_ — Playbooks to embed, 1-20 (default 3).<br>`pivot_limit` _integer_ — Infrastructure pivots to embed, 1-200 (default 25). One threat can carry 150+; get_infrastructure_pivots returns the full set.<br>`shape` _string_ — "v1" (default, unchanged nested envelope) | "canonical" (flat, stably-named, SMALLER — recommended for programmatic consumers) | "both". In canonical: technique ids are a top-level `ttps` array, sectors/regions use ONE spelling, and every array key is ALWAYS an array (never null, never an object). In v1, `similar_threats` and `infrastructure_pivots` are handler envelopes (objects) while `threat.similar_threats` is a flat array — if you are writing a parser, use canonical.
 
 ### `bulk_get_threats`
 
@@ -403,7 +403,7 @@ Campaign clusters the engine assembled from the similarity graph (connected comp
 
 Read precomputed cross-dataset correlations. Choose an engine: 'overview' (rollup of all engines — default), 'mitre-heatmap', 'adversary-infra', 'ioc-consensus', 'cve-velocity', 'attribution', 'detection-debt', or 'enrichment'. Use 'overview' first to see what's available, then drill into a specific engine.
 
-**Arguments:** `engine` = `overview` \| `mitre-heatmap` \| `adversary-infra` \| `ioc-consensus` \| `cve-velocity` \| `attribution` \| `detection-debt` \| `enrichment` — Which correlation engine to read (default 'overview')<br>`limit` _number_ — 'mitre-heatmap' only: max techniques, ordered by risk_score (default 50, max 200). The summary block always covers all techniques.<br>`offset` _number_ — 'mitre-heatmap' only: skip this many techniques.
+**Arguments:** `engine` = `overview` \| `mitre-heatmap` \| `adversary-infra` \| `ioc-consensus` \| `cve-velocity` \| `attribution` \| `detection-debt` \| `enrichment` — Which correlation engine to read (default 'overview')<br>`limit` _number_ — Paged engines only ('mitre-heatmap', 'ioc-consensus', 'detection-debt'): max rows, pre-ordered by score (default 50; max 200 for mitre-heatmap, 500 for the others). The summary block always covers the full set.<br>`offset` _number_ — Paged engines only: skip this many rows.
 
 
 ## L9 · Attack flow, D3FEND & ATLAS

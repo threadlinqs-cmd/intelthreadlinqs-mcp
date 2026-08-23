@@ -416,7 +416,7 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "sections": {
             "type": "string",
-            "description": "CSV of sections to return. Any of: overview, attribution, mitre, iocs, detections (WITH rule bodies), detections_meta (roster only, the default), timeline, tags, targets, remediation, references, similar, updates, osint, flow, entities — or \"all\", or \"row\" (exclusive: a ~500-byte identity row plus section counts). Default: overview,attribution,mitre,iocs,detections_meta,timeline,tags,targets,similar,flow,osint"
+            "description": "CSV of sections to return. Any of: overview, attribution, mitre, iocs, detections (WITH rule bodies), detections_meta (roster only, the default), timeline, tags, targets, remediation, references (full bibliography), references_compact (ranked primary-first + corroboration summary, in the default), similar, updates, osint, flow, entities — or \"all\", or \"row\" (exclusive: a ~500-byte identity row plus section counts). Default: overview,attribution,mitre,iocs,detections_meta,timeline,tags,targets,similar,flow,osint,references_compact"
           },
           "max_description": {
             "type": "number",
@@ -559,7 +559,59 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "references": {
             "type": "array",
-            "items": {}
+            "items": {},
+            "description": "Full bibliography. Present only under sections=references or sections=all."
+          },
+          "references_compact": {
+            "type": "array",
+            "description": "Ranked primary-first, capped at 8. Present in the DEFAULT projection and in both bundles.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "tier": {
+                  "type": "string",
+                  "description": "primary | research | secondary"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "references_summary": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "primary_count": {
+                "type": "integer"
+              },
+              "independent_domains": {
+                "type": "integer",
+                "description": "Distinct registrable domains across ALL references — the corroboration count. Deliberately under-counted."
+              },
+              "earliest_source_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "latest_source_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "omitted": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
           },
           "created_at": {
             "type": "string"
@@ -3857,11 +3909,11 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           },
           "limit": {
             "type": "number",
-            "description": "'mitre-heatmap' only: max techniques, ordered by risk_score (default 50, max 200). The summary block always covers all techniques."
+            "description": "Paged engines only ('mitre-heatmap', 'ioc-consensus', 'detection-debt'): max rows, pre-ordered by score (default 50; max 200 for mitre-heatmap, 500 for the others). The summary block always covers the full set."
           },
           "offset": {
             "type": "number",
-            "description": "'mitre-heatmap' only: skip this many techniques."
+            "description": "Paged engines only: skip this many rows."
           }
         }
       },
@@ -6075,6 +6127,10 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
           "pivot_limit": {
             "type": "integer",
             "description": "Infrastructure pivots to embed, 1-200 (default 25). One threat can carry 150+; get_infrastructure_pivots returns the full set."
+          },
+          "shape": {
+            "type": "string",
+            "description": "\"v1\" (default, unchanged nested envelope) | \"canonical\" (flat, stably-named, SMALLER — recommended for programmatic consumers) | \"both\". In canonical: technique ids are a top-level `ttps` array, sectors/regions use ONE spelling, and every array key is ALWAYS an array (never null, never an object). In v1, `similar_threats` and `infrastructure_pivots` are handler envelopes (objects) while `threat.similar_threats` is a flat array — if you are writing a parser, use canonical."
           }
         },
         "required": [
@@ -6104,7 +6160,8 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "description": "v1: handler envelope {source_threat_id, count, similar[]} — an OBJECT, not an array."
           },
           "simulations": {
             "type": [
@@ -6116,12 +6173,93 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "description": "v1: handler envelope {threat_id, infrastructure_pivots[], coverage{}} — an OBJECT."
+          },
+          "ttps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Canonical MITRE technique ids, present in BOTH shapes."
+          },
+          "_envelope": {
+            "type": "object",
+            "description": "Shape manifest — announces that shape=\"canonical\" exists."
+          },
+          "canonical": {
+            "type": "object",
+            "description": "Present only under shape=\"both\"."
+          },
+          "threat_id": {
+            "type": "string"
+          },
+          "ttp_details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tactic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "sectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "iocs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "canonical: FLAT array. (In v1 this is an object keyed by category under threat.iocs.)"
+          },
+          "counts": {
+            "type": "object",
+            "description": "canonical: a denominator for every array key."
+          },
+          "_shape": {
+            "type": "object"
           }
         },
-        "required": [
-          "threat"
-        ],
         "additionalProperties": true
       },
       "_meta": {
@@ -6766,6 +6904,27 @@ export const CATALOG_SNAPSHOT: CatalogSnapshot = {
             ]
           },
           "server_version": {
+            "type": "string"
+          },
+          "wire_version": {
+            "type": "string",
+            "description": "Negotiated MCP protocol version."
+          },
+          "tool_count": {
+            "type": "integer",
+            "description": "Tools the LIVE server exposes. If your client listed fewer, its catalog is stale."
+          },
+          "prompt_count": {
+            "type": "integer"
+          },
+          "catalog_source": {
+            "type": "string",
+            "description": "Always 'live' here — this response came from the server, not a cached catalog."
+          },
+          "min_recommended_client": {
+            "type": "string"
+          },
+          "catalog_hint": {
             "type": "string"
           }
         },

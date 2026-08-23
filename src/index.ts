@@ -60,7 +60,7 @@ if (API_BASE && !API_BASE.startsWith("https://") && !API_BASE.startsWith("http:/
 // Keep in lockstep with package.json / server.json / plugin.json / mcpb-build/manifest.json.
 // This one is the version the client actually SEES in the initialize handshake, and it has been
 // missed on a release before (see "fix: SERVER_VERSION 8.1.1") — npm version does not touch it.
-const SERVER_VERSION = "8.2.0";
+const SERVER_VERSION = "8.2.1";
 const MCP_ENDPOINT = `${API_BASE}/mcp`;
 const CATALOG_ENDPOINT = `${API_BASE}/mcp/catalog.json`;
 
@@ -299,6 +299,22 @@ async function publicCatalog(): Promise<CatalogShape> {
  * The snapshot is regenerated from the deployed worker (`npm run sync:catalog`),
  * so it can lag a deploy but can never invent a tool that never existed.
  */
+/**
+ * Which tier of the fallback actually answered, for the most recent list call.
+ *
+ * This exists because silent degradation cost a real integrator a week: on a stale build
+ * the two `catch {}` blocks below swallowed the failure and served the bundled snapshot,
+ * so `tools/list` returned a plausible-but-frozen catalog with no signal anywhere that it
+ * was not the live one. They concluded five tools "did not exist", filed tickets, built an
+ * offline fixture to work around a tool we already shipped, and permanently deferred a
+ * feature. A degraded catalog must be VISIBLE.
+ */
+export type CatalogSource = "live" | "public_catalog" | "bundled_snapshot";
+let lastCatalogSource: CatalogSource = "bundled_snapshot";
+export function getLastCatalogSource(): CatalogSource {
+  return lastCatalogSource;
+}
+
 async function listFromRemoteOrCatalog<K extends keyof CatalogShape>(
   method: string,
   resultKey: string,
@@ -307,20 +323,68 @@ async function listFromRemoteOrCatalog<K extends keyof CatalogShape>(
   if (API_KEY) {
     try {
       const r = await mcpRpc<Record<string, unknown[]>>(method, {});
-      if (Array.isArray(r?.[resultKey])) return r[resultKey];
-    } catch {
-      /* fall through to the public catalog */
+      if (Array.isArray(r?.[resultKey])) {
+        lastCatalogSource = "live";
+        return r[resultKey];
+      }
+      console.error(
+        `[threadlinqs] ${method}: authenticated call returned no "${resultKey}" array; falling back to the public catalog. ` +
+          `Tool list may be incomplete.`,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(
+        `[threadlinqs] ${method}: authenticated call FAILED (${msg}). Falling back to the public catalog. ` +
+          `If this is a 401/403 your THREADLINQS_API_KEY is missing, expired, or below Purple (tier 3) — ` +
+          `the tool list you get will be the public one, not yours.`,
+      );
     }
   }
   try {
     const c = await publicCatalog();
     const live = c[catalogKey] as unknown[] | undefined;
-    if (Array.isArray(live) && live.length > 0) return live;
-  } catch {
-    /* fall through to the bundled snapshot */
+    if (Array.isArray(live) && live.length > 0) {
+      lastCatalogSource = "public_catalog";
+      return live;
+    }
+    console.error(
+      `[threadlinqs] public catalog carried no "${String(catalogKey)}"; falling back to the catalog bundled with this package.`,
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(
+      `[threadlinqs] public catalog unreachable (${msg}); falling back to the catalog bundled with this package. ` +
+        `It is a SNAPSHOT and can lag the server — run \`npm i intelthreadlinqs-mcp@latest\` if tools look missing.`,
+    );
   }
+  lastCatalogSource = "bundled_snapshot";
   const snap = CATALOG_SNAPSHOT[catalogKey as keyof CatalogSnapshot];
   return Array.isArray(snap) ? snap : [];
+}
+
+/**
+ * Stamp the catalog provenance onto each tool's `_meta`, so a client can see that its
+ * tool list is degraded without reading stderr. `_meta` is the MCP-sanctioned place for
+ * out-of-band annotation and is ignored by clients that do not look at it.
+ */
+function stampCatalogSource(items: unknown[], source: CatalogSource): unknown[] {
+  if (source === "live") return items;
+  return items.map((it) => {
+    if (!it || typeof it !== "object") return it;
+    const rec = it as Record<string, unknown>;
+    const meta = (rec._meta && typeof rec._meta === "object" ? rec._meta : {}) as Record<string, unknown>;
+    return {
+      ...rec,
+      _meta: {
+        ...meta,
+        "threadlinqs/catalog_source": source,
+        "threadlinqs/catalog_note":
+          source === "bundled_snapshot"
+            ? "Served from the catalog bundled with this npm package — it can lag the server. Run `npm i intelthreadlinqs-mcp@latest`."
+            : "Served from the public catalog, not your authenticated tool list. Check THREADLINQS_API_KEY.",
+      },
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -331,9 +395,10 @@ const server = new Server(
   { capabilities: { tools: {}, resources: {}, prompts: {}, completions: {} } },
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: await listFromRemoteOrCatalog("tools/list", "tools", "tools"),
-}));
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const tools = await listFromRemoteOrCatalog("tools/list", "tools", "tools");
+  return { tools: stampCatalogSource(tools, lastCatalogSource) };
+});
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: rawArgs } = request.params;

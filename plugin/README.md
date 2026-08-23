@@ -39,7 +39,7 @@ claude --plugin-dir /path/to/mcp-server/plugin
 
 ## Alternatives
 
-- **Zero-install remote connector (recommended for most users).** The same 49 tools are available
+- **Zero-install remote connector (recommended for most users).** The same 81 tools are available
   as a remote OAuth 2.1 connector — no Node, no key file, no env var. Add a custom connector to
   `https://intel.threadlinqs.com/mcp` and authenticate with your Purple/Gold account. To make this
   plugin use the remote server instead of stdio, replace `.mcp.json` with:
