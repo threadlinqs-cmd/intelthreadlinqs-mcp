@@ -1,7 +1,7 @@
 {
   "name": "threadlinqs-intelligence",
-  "version": "8.2.0",
-  "description": "Curated cyber-threat intelligence in Claude — 81 read-only tools across threats, SPL/KQL/Sigma detections, IOCs, MITRE ATT&CK, CVE/CWE, C2 infrastructure, and threat-actor attribution. Purple/Gold tier.",
+  "version": "9.0.0",
+  "description": "Curated cyber-threat intelligence in Claude — 25 read-only tools across threats, SPL/KQL/Sigma detections, IOCs, MITRE ATT&CK, CVE/CWE, C2 infrastructure, and threat-actor attribution. Purple and Gold in full; a free account has a daily allowance.",
   "author": {
     "name": "Threadlinqs Intelligence",
     "email": "contact@threadlinqs.com",

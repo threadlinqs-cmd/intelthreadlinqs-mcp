@@ -12,8 +12,9 @@ derived from the server's own field map (so it cannot go stale), the display col
 `rebuilt_at` / `row_count` for index freshness. The index is materialized by the nightly
 cron — it is as fresh as the last rebuild, not live.
 
-Both tools need tier ≥ 3 (Purple/Gold), like every tool call. `-32001` = missing/invalid
-key, `-32002` = authenticated but under-tier. Both terminal.
+Both tools need a valid account like every tool call: Purple/Gold in full, a free account 2 calls a
+day in total. `-32001` = missing/invalid key, `-32002` = authenticated but refused (unverified,
+below Blue); a spent free allowance is a tool result with `free_mcp_limit_reached`. All terminal.
 
 ---
 
@@ -35,7 +36,7 @@ anything before it is the filter.
 | Value length | 200 chars (silently truncated) | compiler |
 | `by` fields | 4 (extras dropped) | stats parser |
 | `limit` arg | default 50, clamped to 100 | MCP layer |
-| Response | 90,000 chars, then a `... [truncated: response exceeded 90000 chars — narrow your query` marker | MCP layer |
+| Response | 90,000 chars, then whole list elements are dropped and the JSON gains `truncated: true`, `truncation_note`, `returned`, `total` | MCP layer |
 
 `limit` caps **rows** in row mode and **groups** in `stats … by` mode (the tool description
 says it is ignored in stats mode — that is true only for a bare `| stats count` with no
@@ -310,8 +311,8 @@ category = "RANSOMWARE" AND seen > "180d" | stats count_distinct(threat) by nati
 | `Unsupported stats pipe` | Only `count` / `count_distinct` / `dc`, optional `by` with ≤ 4 fields |
 | Empty result, filter looks right | Group-by field is NULL on the filtered rows — the filter field is unscoped (see *Scoped observables*) |
 | One group with a blank key holding everything | Older behaviour; blank groups are now dropped — re-run and check the filter is scoped |
-| `... [truncated: response exceeded 90000 chars` | Add predicates, lower `limit`, or switch to `| stats` |
-| `tier_gated_included: false` in the response | The caller was below tier 3, so `c2_beacon` / `dns` / `infra` rows were excluded. MCP callers are tier ≥ 3 by definition, so this should read `true` |
+| `truncated: true` in the result | Add predicates, lower `limit`, or switch to `| stats` |
+| `tier_gated_included: false` in the response | The caller was below tier 3, so `c2_beacon` / `dns` / `infra` rows were excluded. MCP calls run with the Purple data view (Purple, Gold, or a granted free call), so this should read `true` |
 
 If a query returns nothing, relax **one** predicate at a time rather than rewriting it —
 that identifies which term is empty. Report the exact TLQL you ran alongside the answer.

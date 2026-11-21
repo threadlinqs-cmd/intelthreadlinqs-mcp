@@ -23,26 +23,41 @@ suffix after the last `__`; the prefix is the host's server label, not part of t
 
 ## 1. Get a key first
 
-Nothing below works without one. **Tool CALLS require tier ≥ 3 (Purple or Gold).**
+Nothing below works without one. **Purple and Gold (tier ≥ 3) have full access; a free account
+(Blue, verified email) gets 2 tool calls a day.**
 
 1. Sign up at <https://intel.threadlinqs.com>.
-2. Verify the email — an unverified account is tier 0 and every MCP method is refused.
+2. Verify the email. An unverified account is tier 0 and every MCP method is refused.
 3. Go to **Profile → API Key** and create a key. It starts with `tl_`.
-4. **Signing up alone does not grant MCP access.** A new account lands on Blue (tier 1);
-   tool calls need tier >= 3, so they return `-32002` until you upgrade. The 7-day Purple
-   trial is offered at checkout on the pricing page, not on signup.
+4. **Signing up alone grants the free allowance only.** A new account lands on Blue (tier 1):
+   2 MCP tool calls a day (Toronto day) with the full data view, `get_started` not counted, the
+   11 fan-out tools excluded. After that the next call returns a tool result with
+   `isError: true` and `structuredContent.error` = `free_mcp_limit_reached`. A Purple trial is
+   offered at checkout on the pricing page (a card is required), not on signup.
 
 | Tier | Name | MCP tool calls |
 |---|---|---|
 | 0 | Unverified | no |
-| 1 | Blue (free) | no |
-| 2 | Red | no |
+| 1 | Blue (free) | 2 calls a day, fan-out tools excluded |
+| 2 | Red | 2 calls a day, fan-out tools excluded |
 | 3 | Purple ($11.99/mo) | yes — all 81 tools |
 | 4 | Gold (team) | yes — all 81 tools |
 
+The fan-out tools a free account cannot call (`free_mcp_tool_excluded`): `export_stix`,
+`export_attack_navigator`, `export_detection`, `get_latest_debrief`, `get_threat_bundle`,
+`get_threat_hunting_bundle`, `get_daily_intel_bundle`, `bulk_get_threats`, `bulk_get_cves`,
+`get_actor_intelligence`, `get_cve_intelligence`. MCP resources (`resources/read` of data) stay
+Purple or Gold.
+
+A self-registered `tla_` agent key (`POST /api/v1/agents/register`) opens the Blue REST routes
+only. Once a human claims it with its `claim_url`, it reaches `/mcp` and acts with that
+person's plan.
+
+Every call also spends TL Creds (see SKILL.md, Access).
+
 The gate is enforced server-side on every call. It is not a client setting, and no
-configuration flag bypasses it. When the trial lapses, in-flight sessions start returning
-`-32002` on the next call.
+configuration flag bypasses it. When a trial lapses, the account drops to the free allowance
+and in-flight sessions start getting `free_mcp_limit_reached` once the day's 2 calls are spent.
 
 Treat the key as a secret: it is a bearer credential with your account's full read scope. Put
 it in an env var or the host's secret store, never in a file you commit.
@@ -147,8 +162,9 @@ env:     THREADLINQS_API_KEY=tl_your_key_here
 else at startup. It exists for pointing at a dev worker; leave it unset in normal use.
 
 Startup behaviour worth knowing: with no key, or a key below Purple, the server still starts
-and still lists its tools. It writes a warning to stderr and every call fails. A host that
-shows the tools but errors on use is in exactly this state.
+and still lists its tools. It writes a warning to stderr; with no valid key every call fails,
+and a free key gets 2 calls a day. A host that shows the tools but errors on use is in exactly
+this state.
 
 ### Alternatives
 
@@ -167,8 +183,8 @@ Two cheap calls, in order:
 
 1. `get_started` — returns the server info, tiering block, tool catalog and category map
    **inline**, with no downstream database round-trip. It is the cheapest tool on the server,
-   but it is still tier-gated: if it returns `-32001`/`-32002`, the key is the problem, not the
-   transport.
+   but it still needs a valid account: if it returns `-32001`/`-32002`, the key is the problem,
+   not the transport. On a free account it does not spend one of the 2 daily calls.
 2. `health` — round-trips the backend. A pass here means the data path works.
 
 Then, before any aggregate work, call `hunt_schema` **once** to load the TLQL field grammar.
@@ -227,8 +243,8 @@ exactly this case:
 | `GET https://intel.threadlinqs.com/mcp.md` | The same documentation as Markdown |
 | `resources/read` on a `ui://…` URI | Renderer shells only — inline HTML/CSS/JS with zero threat content, served before the gate so widgets do not render blank |
 
-Everything else — `tools/call`, `prompts/get`, and `resources/read` on a `threadlinqs://` URI
-— requires Purple or Gold.
+Everything else needs a valid account: `tools/call` (a free account gets 2 a day, fan-out tools
+excluded), `prompts/get`, and `resources/read` on a `threadlinqs://` URI (Purple or Gold).
 
 `catalog.json` is the authority on names, arguments and enums. When a tool name from a README,
 a blog post or model memory disagrees with the catalog, the catalog is right.
@@ -239,9 +255,9 @@ a blog post or model memory disagrees with the catalog, the catalog is right.
 
 | Limit | Behaviour | What to do |
 |---|---|---|
-| 90,000 characters per response | The payload is cut and the string `... [truncated: response exceeded 90000 chars — narrow your query (add filters, lower limit, or use a more specific tool) and retry]` is appended | Detect that marker, then narrow: add filters, lower `limit`, or switch to a more specific tool. Do not parse the truncated JSON — it is cut mid-structure |
-| Paging honored | `search_threats`, `get_recent_threats`, `get_detections`, `search_xscan_indicators` accept `offset`/`cursor` and return `has_more` + `next_cursor` | Page these when you genuinely need more rows |
-| Paging **not** honored | `search_iocs`, `list_debriefs`, `search_actors` | Narrow the query instead — a second call with an offset returns the same rows |
+| 90,000 characters per response | The result stays valid JSON: whole elements are dropped from the end of the largest list and the object gains `truncated: true`, `truncation_note`, `returned` and `total` | Check `truncated`, then narrow: add filters, lower `limit`, or switch to a more specific tool. Never report `returned` rows as the whole `total` |
+| Paging honored | `search_threats`, `get_recent_threats`, `get_detections`, `search_xscan_indicators`, `search_vulnerabilities`, `get_c2` (default beacons view), `get_c2_dns_intel`, `get_ioc_dns`, `search_iocs` accept `offset`/`cursor` and return `has_more` + `next_cursor` | Page these when you genuinely need more rows |
+| Paging **not** honored | `list_debriefs`, `search_actors` | Narrow the query instead — a second call with an offset returns the same rows |
 | `hunt` without `hunt_schema` | Invented field names match nothing; result set is empty, not an error | Call `hunt_schema` once per session, first |
 
 ---
@@ -251,11 +267,13 @@ a blog post or model memory disagrees with the catalog, the catalog is right.
 | Symptom | Cause | Fix |
 |---|---|---|
 | JSON-RPC error `-32001` | No key, malformed key, revoked key, or the header never reached the server | Set `THREADLINQS_API_KEY` (stdio) or the `Authorization: Bearer tl_…` header (remote) and restart the host. **Terminal — do not retry other tools.** Surface the sign-up/upgrade path instead |
-| JSON-RPC error `-32002` | Authenticated, but tier < 3 — free/Blue/Red account, or a lapsed Purple trial or subscription | Upgrade at <https://threadlinqs.com/landing.html#pricing>. The `data` block carries `your_tier` and `required_tier`. **Terminal — no other tool will succeed.** Do not probe the rest of the catalog |
+| JSON-RPC error `-32002` | Authenticated, but refused: unverified email, an unclaimed `tla_` agent key (a human must claim it first), the free MCP plan switched off, or an account below Blue | Verify the email, or upgrade at <https://threadlinqs.com/#pricing>. The `data` block carries `your_tier` and `required_tier`. **Terminal — no other tool will succeed.** Do not probe the rest of the catalog |
+| Tool result with `isError: true` and `structuredContent.error` = `free_mcp_limit_reached` | A free account spent its 2 calls for the Toronto day | Wait for midnight Toronto time or upgrade to Purple. **Terminal for the day** |
+| Tool result with `structuredContent.error` = `free_mcp_tool_excluded` | A free account called a fan-out tool | Use a single lookup (`get_threat`, `search_threats`, `get_detections`) or upgrade to Purple |
 | Query returns `results: []` with no error | A guessed enum value. Filters are matched literally, so an invalid `category` or `severity` silently matches nothing | Call `list_threat_categories` for the live category vocabulary; use `resolve_entity` before pivoting on an actor/malware/tool alias. Never invent enum values |
-| Response ends in the truncation marker | Result exceeded 90,000 characters | Narrow — filters, lower `limit`, a more specific tool, or a `hunt … \| stats count by …` aggregate instead of pulling rows |
+| Result carries `truncated: true` | Result exceeded 90,000 characters | Narrow — filters, lower `limit`, a more specific tool, or a `hunt … \| stats count by …` aggregate instead of pulling rows |
 | Host shows an empty tool list | `tools/list` was refused (`-32001`), or the process is offline/sandboxed | Fix auth first. Since 8.1.0 the npm package falls back through authenticated `tools/list` → public `/mcp/catalog.json` → a **catalog snapshot bundled in the package**, so a network-isolated sandbox still lists the real tools. An older installed version returns an empty array here — pin `intelthreadlinqs-mcp@latest` |
-| Tools list fine, every call errors | Server started without a valid Purple/Gold key — this is by design so registries can introspect | Check stderr for the startup warning, then fix the key |
+| Tools list fine, every call errors | Server started without a valid key — this is by design so registries can introspect | Check stderr for the startup warning, then fix the key |
 | `spawn npx ENOENT` | Node is not on the host's PATH | Install Node ≥ 18; on Windows use `npx.cmd`; or use an absolute path to `node` with the `.mcpb` bundle |
 | Server refuses to start, complains about the URL | `THREADLINQS_API_URL` is set to something that is neither `https://` nor `http://localhost` | Unset it — it defaults correctly |
 | Duplicate tool names in the host | Both transports registered at once | Remove one connector |
@@ -267,7 +285,7 @@ a blog post or model memory disagrees with the catalog, the catalog is right.
 - Interactive docs: <https://intel.threadlinqs.com/mcp> (Markdown twin: `/mcp.md`)
 - Machine-readable catalog: <https://intel.threadlinqs.com/mcp/catalog.json>
 - Key + trial: <https://intel.threadlinqs.com/profile>
-- Pricing: <https://threadlinqs.com/landing.html#pricing>
+- Pricing: <https://threadlinqs.com/#pricing>
 - Changelog: <https://intel.threadlinqs.com/changelog>
 
 Maintained by the Threadlinqs Team, Threadlinqs Intelligence.

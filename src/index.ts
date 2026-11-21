@@ -2,10 +2,17 @@
 /**
  * Threadlinqs Intelligence MCP Server — stdio transport.
  *
- * ARCHITECTURE (v8): this package is a THIN PROXY. It speaks MCP over stdio to the
+ * ARCHITECTURE (v8, unchanged in v9): this package is a THIN PROXY. It speaks MCP over stdio to the
  * local host (Claude Desktop, Cursor, VS Code, Claude Code) and forwards every request
  * as JSON-RPC to the remote Streamable-HTTP MCP server at `${API_BASE}/mcp`, which
- * lives in the platform worker and owns the single tool registry (`MCP_TOOLS`).
+ * lives in the platform worker and owns the tool registry.
+ *
+ * v9 (this package's 9.0.0): the remote now has two surfaces on the one URL, picked by a
+ * server-side flag. v8 lists 81 tools and answers plain JSON; v9 lists 25 tools, keeps every
+ * v8 name callable as an unlisted alias, and answers Server-Sent Events to a client that
+ * accepts them. The proxy speaks to both: it sends the dual Accept, branches on the response
+ * content type (src/wire.ts), and treats the LIVE tools/list as the only authority on what is
+ * listed. The bundled snapshot is the offline fallback and describes v9.
  *
  * Why it was rewritten. Until v7.1.4 this file carried its own hand-maintained catalog
  * of 54 tool definitions plus ~790 lines of dispatch, duplicating the worker's registry
@@ -24,10 +31,10 @@
  * They are absent from `tools/list` but still callable, with their arguments rewritten
  * to the canonical shape, so existing configs and saved prompts keep working.
  *
- * Auth: `THREADLINQS_API_KEY` (a Purple/Gold `tl_` key) is forwarded as a Bearer token.
+ * Auth: `THREADLINQS_API_KEY` (a `tl_` key; a free account gets a few tool calls a day, Purple and Gold have full access) is forwarded as a Bearer token.
  * Without it the server still starts and serves the catalog — registries introspect
  * before auth is configured (Glama's Docker probe) — but every tool CALL is refused by
- * the remote. Threadlinqs MCP data access remains Purple-tier only.
+ * the remote. Purple and Gold have full access; a free account gets a small daily allowance.
  *
  * @author Threadlinqs Team
  */
@@ -45,6 +52,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { CATALOG_SNAPSHOT, type CatalogSnapshot } from "./catalog-snapshot.js";
+import { RemoteError, WIRE_LIMITS, explainFailure, failureMeta, parseFailure, readRpcResponse, readTextCapped, retryAfterOf, PROFILE_URL } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -60,13 +68,16 @@ if (API_BASE && !API_BASE.startsWith("https://") && !API_BASE.startsWith("http:/
 // Keep in lockstep with package.json / server.json / plugin.json / mcpb-build/manifest.json.
 // This one is the version the client actually SEES in the initialize handshake, and it has been
 // missed on a release before (see "fix: SERVER_VERSION 8.1.1") — npm version does not touch it.
-const SERVER_VERSION = "8.2.1";
+const SERVER_VERSION = "9.0.0";
 const MCP_ENDPOINT = `${API_BASE}/mcp`;
 const CATALOG_ENDPOINT = `${API_BASE}/mcp/catalog.json`;
+// Identifies this client to the platform's logs. Package name and version only: nothing about the
+// user or the machine.
+const USER_AGENT = `intelthreadlinqs-mcp/${SERVER_VERSION}`;
 
 /**
  * The revision this proxy speaks to the remote. Kept in lockstep with the worker's
- * MCP_PROTOCOL_VERSION. The remote validates this header and answers 400 for anything
+ * MCP_PROTOCOL_VERSION (v9 serves it too, next to 2026-07-28). The remote validates this header and answers 400 for anything
  * it does not support, so bumping it here without bumping the worker is a hard failure
  * rather than a silent downgrade — which is the intent.
  */
@@ -82,11 +93,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 const RETRY_SLEEP_CAP_MS = 4000;
 
+/**
+ * One request, end to end (headers and body). v9 can legitimately spend most of a minute inside
+ * a call (exports, semantic search), and its answer is a stream whose headers arrive first, so
+ * the clock runs until the answer has been read.
+ */
+const REQUEST_TIMEOUT_MS = 55_000;
+
 // ---------------------------------------------------------------------------
-// LEGACY TOOL ALIASES (v7 → v8)
+// LEGACY TOOL ALIASES (v7 → canonical v8 name)
 //
 // Dispatch-only: absent from tools/list, still callable. `args` rewrites the
-// v7 argument shape onto the canonical tool's schema. Remove in the next major.
+// v7 argument shape onto the canonical tool's schema. The targets are v8 names, which both
+// surfaces answer (v9 keeps all 81 as unlisted aliases of its own). Reviewed for 9.0.0 against
+// packages/mcp-v9/src/legacy/aliases.ts: v9 aliases the v8 registry, not these v7-era names,
+// so none became redundant and none was removed (tests/aliases.test.mjs enforces that).
 // ---------------------------------------------------------------------------
 type AliasFn = (a: Record<string, unknown>) => Record<string, unknown>;
 interface Alias { to: string; args?: AliasFn }
@@ -119,7 +140,7 @@ const LEGACY_ALIASES: Record<string, Alias> = {
   // 'enrichment') in effect, but it is a LIVE entry in the worker's MCP_TOOLS — so
   // aliasing it here would shadow a real tool and rewrite its arguments. Collapsing
   // the duplicate is a decision for the worker registry, not for this proxy.
-  // (scripts/test/mcp-proxy-parity.test.cjs enforces exactly this.)
+  // (tools/test/mcp-proxy-parity.test.cjs enforces exactly this.)
 };
 
 /**
@@ -154,11 +175,7 @@ function sanitize(s: string): string {
   return API_KEY ? s.split(API_KEY).join("tl_***") : s;
 }
 
-class RemoteError extends Error {
-  constructor(message: string, readonly code?: number, readonly data?: unknown) {
-    super(message);
-  }
-}
+const oneLine = (s: string) => s.replace(/\s*\n+\s*/g, " ");
 
 let rpcId = 0;
 
@@ -169,83 +186,102 @@ async function mcpRpc<T = any>(method: string, params: unknown = {}, retries = 2
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      Accept: "application/json",
+      // v9's transport insists on hearing both; v8 ignores the header and answers JSON.
+      Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": WIRE_PROTOCOL_VERSION,
+      "User-Agent": USER_AGENT,
     };
     if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const id = ++rpcId;
     try {
       const res = await fetch(MCP_ENDPOINT, {
         method: "POST",
         headers,
-        body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+        body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
         signal: controller.signal,
       });
-      clearTimeout(timer);
 
-      // Transport-level failures. 429/5xx are retried; everything else is terminal.
-      if (!res.ok && res.status !== 401) {
-        const body = await res.text().catch(() => "");
-        const ra = parseInt(res.headers.get("retry-after") || "", 10);
+      // Anything but 2xx. 429/5xx are retried; everything else is terminal. The body is parsed
+      // for a JSON-RPC error first, so the server's own code, data and retry hint survive.
+      if (!res.ok) {
+        const { text: body } = await readTextCapped(res, WIRE_LIMITS.maxErrorBytes);
+        const header = parseInt(res.headers.get("retry-after") || "", 10);
+        const f = parseFailure(res.status, res.statusText, body, res.headers.get("content-type"), Number.isFinite(header) ? header : undefined);
+        const ra = f.retryAfterS;
 
         // Never sleep longer than a client will wait. The remote rate-limits MCP at
         // 120 requests / 60s and answers 429 with `Retry-After: 60`; honouring that
         // literally parks the call for a full minute, which every MCP host times out
         // long before — the caller sees an opaque hang instead of a usable error.
         // Beyond the cap, fail fast and SAY how long to wait.
-        if (res.status === 429 && Number.isFinite(ra) && ra * 1000 > RETRY_SLEEP_CAP_MS) {
+        if (res.status === 429 && ra !== undefined && ra * 1000 > RETRY_SLEEP_CAP_MS) {
           throw new RemoteError(
-            `Rate limited by the Threadlinqs MCP endpoint. Retry in ${ra}s. ` +
-            `(The limit is per API key / IP; batching many tool calls at once will trip it.)`,
+            sanitize(
+              `Rate limited by the Threadlinqs MCP endpoint. Retry in ${Math.ceil(ra)}s. ` +
+                `(The limit is per API key / IP; batching many tool calls at once will trip it.)`,
+            ),
+            f.code,
+            f.data,
+            { status: res.status, retryAfterS: ra },
           );
         }
         if ((res.status === 429 || res.status >= 500) && attempt < maxAttempts - 1) {
-          const backoff = Number.isFinite(ra) ? ra * 1000 : 200 * 2 ** attempt + Math.random() * 100;
+          const backoff = ra !== undefined ? ra * 1000 : 200 * 2 ** attempt + Math.random() * 100;
           await sleep(Math.min(backoff, RETRY_SLEEP_CAP_MS));
           continue;
         }
-        throw new RemoteError(sanitize(`MCP ${res.status} ${res.statusText} — ${body.slice(0, 400)}`));
+        throw new RemoteError(sanitize(f.message), f.code, f.data, { status: res.status, retryAfterS: ra });
       }
 
-      const payload = (await res.json().catch(() => null)) as
-        | { result?: T; error?: { code: number; message: string; data?: unknown } }
-        | null;
-      if (!payload) throw new RemoteError("Malformed response from the Threadlinqs MCP endpoint (not JSON).");
-      if (payload.error) throw new RemoteError(sanitize(payload.error.message), payload.error.code, payload.error.data);
+      const payload = await readRpcResponse(res, id);
+      if (payload.error) {
+        throw new RemoteError(sanitize(payload.error.message), payload.error.code, payload.error.data, {
+          retryAfterS: retryAfterOf(payload),
+        });
+      }
       return payload.result as T;
     } catch (error) {
-      clearTimeout(timer);
       lastErr = error;
       if (error instanceof RemoteError) throw error;
       const e = error instanceof Error ? error : new Error(String(error));
-      const transient = e.name === "AbortError" || /fetch failed|network|ECONN|ETIMEDOUT|EAI_AGAIN/i.test(e.message);
+      const transient = e.name === "AbortError" || /fetch failed|network|ECONN|ETIMEDOUT|EAI_AGAIN|terminated/i.test(e.message);
       if (transient && attempt < maxAttempts - 1) {
         await sleep(200 * 2 ** attempt + Math.random() * 100);
         continue;
       }
       throw new RemoteError(sanitize(e.message));
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 /**
- * Turn a remote failure into an actionable, surface-correct tool error. The remote
- * uses -32001 for "Purple tier required"; its own message names the upgrade path, but
- * it is written for a connector host, so the stdio remedy is spelled out here.
+ * Turn a remote failure into an actionable, surface-correct tool error. The platform uses -32001
+ * for a missing or rejected credential and -32002 for "this plan or account state cannot call MCP"
+ * (an unclaimed agent key, an unverified email, the free plan switched off, below the free tier);
+ * its message is written for a connector host, so the stdio remedy is added by explainFailure.
+ *
+ * Tool-level refusals (v9's structured tool errors with a code, retryable and retry_after_s; the
+ * free plan's free_mcp_limit_reached and free_mcp_tool_excluded) are NOT failures here: the remote
+ * returns them as an ordinary tool result with isError, and that result is passed through
+ * untouched. The machine-readable fields of a protocol-level failure ride in `_meta` (never in
+ * structuredContent, which hosts validate against the tool's outputSchema).
  */
 function toolError(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e);
-  const code = e instanceof RemoteError ? e.code : undefined;
-  let text = msg;
-  if (code === -32001 || /Authentication required|Purple/i.test(msg)) {
-    text = API_KEY
-      ? `${msg}\n\nThe configured THREADLINQS_API_KEY was rejected or is below Purple tier. Check it at https://intel.threadlinqs.com/profile`
-      : `${msg}\n\nSet THREADLINQS_API_KEY to a Purple or Gold key (get one at https://intel.threadlinqs.com/profile) and restart the MCP server.`;
-  }
-  return { content: [{ type: "text" as const, text }], isError: true };
+  const err = e instanceof RemoteError ? e : new RemoteError(e instanceof Error ? e.message : String(e));
+  // A failure with no code and no status can still be the missing-credential case.
+  const needsKey = err.code === undefined && err.meta.status === undefined && /Authentication required/i.test(err.message);
+  const shaped = needsKey ? new RemoteError(err.message, -32001, err.data, err.meta) : err;
+  return {
+    content: [{ type: "text" as const, text: explainFailure(shaped, !!API_KEY) }],
+    isError: true,
+    _meta: { "threadlinqs/error": failureMeta(shaped) },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +307,10 @@ async function publicCatalog(): Promise<CatalogShape> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(CATALOG_ENDPOINT, { headers: { Accept: "application/json" }, signal: controller.signal });
+    const res = await fetch(CATALOG_ENDPOINT, {
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+      signal: controller.signal,
+    });
     if (!res.ok) throw new Error(`catalog ${res.status}`);
     const value = (await res.json()) as CatalogShape;
     catalogCache = { at: Date.now(), value };
@@ -296,8 +335,10 @@ async function publicCatalog(): Promise<CatalogShape> {
  * server with zero tools. Returning a stale-but-real catalog is strictly better
  * than silently claiming to have nothing.
  *
- * The snapshot is regenerated from the deployed worker (`npm run sync:catalog`),
- * so it can lag a deploy but can never invent a tool that never existed.
+ * The snapshot is regenerated from the v9 catalog (`npm run sync:catalog`; from the live
+ * endpoint at release time), so it can lag a deploy but can never invent a tool that never
+ * existed. It is the OFFLINE fallback only: whichever surface the remote serves right now (v8
+ * lists 81 tools, v9 lists 25) is what the live tools/list returns, and that always wins.
  */
 /**
  * Which tier of the fallback actually answered, for the most recent list call.
@@ -315,6 +356,21 @@ export function getLastCatalogSource(): CatalogSource {
   return lastCatalogSource;
 }
 
+/** Follow `nextCursor` (bounded) so a paged list is never silently cut to its first page. */
+async function listAllPages(method: string, resultKey: string): Promise<unknown[] | null> {
+  const all: unknown[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const r = await mcpRpc<Record<string, unknown>>(method, cursor ? { cursor } : {});
+    const items = r?.[resultKey];
+    if (!Array.isArray(items)) return page === 0 ? null : all;
+    all.push(...items);
+    cursor = typeof r.nextCursor === "string" && r.nextCursor ? r.nextCursor : undefined;
+    if (!cursor) break;
+  }
+  return all;
+}
+
 async function listFromRemoteOrCatalog<K extends keyof CatalogShape>(
   method: string,
   resultKey: string,
@@ -322,20 +378,20 @@ async function listFromRemoteOrCatalog<K extends keyof CatalogShape>(
 ): Promise<unknown[]> {
   if (API_KEY) {
     try {
-      const r = await mcpRpc<Record<string, unknown[]>>(method, {});
-      if (Array.isArray(r?.[resultKey])) {
+      const items = await listAllPages(method, resultKey);
+      if (items) {
         lastCatalogSource = "live";
-        return r[resultKey];
+        return items;
       }
       console.error(
         `[threadlinqs] ${method}: authenticated call returned no "${resultKey}" array; falling back to the public catalog. ` +
           `Tool list may be incomplete.`,
       );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof RemoteError ? oneLine(explainFailure(e, true)) : e instanceof Error ? e.message : String(e);
       console.error(
         `[threadlinqs] ${method}: authenticated call FAILED (${msg}). Falling back to the public catalog. ` +
-          `If this is a 401/403 your THREADLINQS_API_KEY is missing, expired, or below Purple (tier 3) — ` +
+          `If this is a 401/403 your THREADLINQS_API_KEY is missing, rejected, unclaimed (an agent key) or its account is not verified — ` +
           `the tool list you get will be the public one, not yours.`,
       );
     }
@@ -412,7 +468,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{
           type: "text" as const,
-          text: `"${call.aliased}" was retired in v8 and is now an alias for "${call.name}", which rejected the arguments: ${e.message}\n\nCall "${call.name}" directly — see tools/list for its schema.`,
+          text: `"${call.aliased}" is a legacy name, kept callable as an alias for "${call.name}", which rejected the arguments: ${e.message}\n\nCall "${call.name}" directly — see tools/list for its schema.`,
         }],
         isError: true,
       };
@@ -455,11 +511,11 @@ async function main() {
   if (!API_KEY) {
     // Boot without a key so introspection works for registries and clients that probe
     // the catalog before configuring auth (Glama's Docker check). Tool CALLS stay
-    // gated — the remote refuses them. Purple tier (>= 3) is still required for data.
+    // gated — the remote refuses them until a key is set. A free key gets a small daily allowance; Purple and Gold have full access.
     console.error(
-      "WARNING: THREADLINQS_API_KEY is not set — the server will start and expose its tool catalog, but every tool CALL will fail until a Purple/Gold key is configured.",
+      "WARNING: THREADLINQS_API_KEY is not set — the server will start and expose its tool catalog, but every tool CALL will fail until a key is configured (a free account's key gets a small daily allowance; Purple and Gold have full access).",
     );
-    console.error("Get a Purple/Gold key at https://intel.threadlinqs.com/profile — signing up alone lands on Blue (tier 1); the 7-day Purple trial is offered at checkout.");
+    console.error(`Get a key at ${PROFILE_URL} — a free account's key has a daily allowance of calls; Purple and Gold have full access.`);
     await server.connect(transport);
     console.error(`Threadlinqs Intelligence MCP server v${SERVER_VERSION} on stdio (no API key — introspection only)`);
     return;
@@ -484,9 +540,9 @@ async function main() {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (e instanceof RemoteError && (e.code === -32001 || /Authentication required|Purple/i.test(msg))) {
+    if (e instanceof RemoteError && (e.code === -32001 || e.code === -32002 || e.meta.status === 401 || e.meta.status === 403)) {
       console.error(
-        "WARNING: THREADLINQS_API_KEY was rejected or is below Purple tier — the catalog stays browsable but tool calls will fail. Fix it at https://intel.threadlinqs.com/profile",
+        `WARNING: ${oneLine(explainFailure(e, true))} — the catalog stays browsable but tool calls will fail.`,
       );
     } else {
       console.error(`WARNING: could not reach ${MCP_ENDPOINT} (${msg}); continuing — the catalog falls back to ${CATALOG_ENDPOINT}.`);
@@ -495,7 +551,7 @@ async function main() {
 
   await server.connect(transport);
   console.error(`Threadlinqs Intelligence MCP server v${SERVER_VERSION} running on stdio`);
-  console.error(`Upstream: ${MCP_ENDPOINT} (Purple/Gold tier >= 3 required for tool calls)`);
+  console.error(`Upstream: ${MCP_ENDPOINT} (Purple and Gold have full access; a free account has a daily allowance of calls)`);
 }
 
 main().catch((error) => {

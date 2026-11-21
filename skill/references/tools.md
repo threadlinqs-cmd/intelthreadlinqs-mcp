@@ -3,8 +3,9 @@
 GENERATED FILE — do not edit by hand. Regenerate with `npm run build:skill`.
 Source: `https://intel.threadlinqs.com/mcp/catalog.json`.
 
-Arguments marked **\*** are required. Tool **calls** need a Purple or Gold key (tier ≥ 3);
-introspection does not. Your host may prefix these names — match by suffix.
+Arguments marked **\*** are required. Purple and Gold have full access to every tool; a free account
+gets 2 tool calls a day with the fan-out tools excluded (see SKILL.md, Access). Your host may
+prefix these names — match by suffix.
 
 
 ## L0 · Orient
@@ -43,7 +44,7 @@ Health and coverage of the enrichment LANES feeding the platform, one row each: 
 
 ### `get_changelog`
 
-Get the platform changelog (new threats, detections, features), strictly newest-first by date. Pass limit (default 20, max 100). NOTE: this is a hand-maintained release feed, not a deploy log — it stopped being written in Feb 2026, so the response carries latest_entry_date / stale_days / a warning. For what the platform actually looks like NOW use get_platform_stats (live corpus counts) and get_engine_status (pipeline state); do not answer "what changed recently" from this alone.
+Get the Threadlinqs version history, newest release first: each release's version, date, name, summary and its changes by category with their current status. Pass limit (default 20, max 100).
 
 **Arguments:** `limit` _number_ — Max entries (default 20, max 100)
 
@@ -195,9 +196,9 @@ Exact value → intelligence; substring → search.
 
 ### `search_iocs`
 
-Search indicators of compromise (IPs, domains, hashes, URLs). Filter by value substring and/or category. Pass limit (default 25, max 100); the result includes has_more (true when the page is full, so more may exist). NOTE: the indicator endpoint does not yet honor offset — narrow with a more specific value/type substring rather than paging.
+Search indicators of compromise (IPs, domains, hashes, URLs), newest first. Filter by value and/or category. `value` matches as a case-insensitive PREFIX by default (fast, index-backed); pass match="exact" for one whole value or match="substring" to match anywhere in the value (slower). Paginated: limit (default 25, max 100) + offset/cursor (offset max 10000); the result carries has_more and next_cursor, plus on the first page of a prefix or exact match total (capped at 1000, see total_capped) when it can be counted for your account. may_be_incomplete:true means indicators of reports you have not unlocked are withheld, so has_more can end the walk before every readable match was seen.
 
-**Arguments:** `value` _string_ — Substring to match against IOC values<br>`type` _string_ — IOC category (e.g. network, file, behavioral)<br>`limit` _number_ — Max results (default 25, max 100)
+**Arguments:** `value` _string_ — Text to match against IOC values (prefix by default; see match)<br>`match` = `prefix` \| `exact` \| `substring` — How `value` matches: prefix (default), exact (whole value), or substring (anywhere; slower)<br>`type` _string_ — IOC category (e.g. network, file, behavioral)<br>`limit` _number_ — Max results (default 25, max 100)<br>`offset` _number_ — Row offset for pagination (default 0, max 10000).<br>`cursor` _string_ — Opaque pagination cursor (next_cursor from a prior result); ignored when offset is given.
 
 ### `get_ioc_intelligence`
 
@@ -209,7 +210,7 @@ Get the composite intelligence dossier for one indicator: linked threats, actor 
 
 Return stored DNS enrichment for an IP or domain indicator (reverse-IP and subdomain records previously resolved and cached in the platform dataset). This reads stored data — it is NOT a live lookup at call time. Use get_ioc_intelligence for the full stored dossier.
 
-**Arguments:** `value`**\*** _string_ — IP address or domain (stored DNS enrichment lookup)
+**Arguments:** `value`**\*** _string_ — IP address or domain (stored DNS enrichment lookup)<br>`limit` _number_ — Max DNS records (default 100, max 100). `total` counts every stored record.<br>`offset` _number_ — Record offset for pagination (default 0). Each page counts as one DNS lookup against the daily quota, so the default page is the largest.<br>`cursor` _string_ — Opaque pagination cursor (next_cursor from a prior result); ignored when offset is given.
 
 ### `get_ioc_blast_radius`
 
@@ -221,25 +222,25 @@ Map the blast radius of one indicator: the threats that contain it, the MITRE te
 
 For a given threat, surface cross-threat infrastructure links — shared IPs/domains/hashes and DNS-derived overlaps that tie it to other campaigns. Derived from the SAME indicator universe the correlation graph scores, so a pivot here and an ioc-basis edge in explain_correlation agree. Each pivot carries value_threat_count (2 = the value is nearly unique to this pair; 40 = commodity such as a Run key) and a rarity-derived confidence — read those before calling an overlap a link. `coverage` gives the denominator: pivot_count 0 with scorable_iocs > 0 is a REAL negative, pivot_count 0 with scorable_iocs 0 only means the threat carries no pivotable indicator. Labels (malware family, tool name, technique) are deliberately not pivotable — two write-ups naming the same family observed nothing in common. Use get_similar_threats for TTP/actor-based similarity instead.
 
-**Arguments:** `threat_id`**\*** _string_ — Threat ID (e.g. TL-2026-0042)
+**Arguments:** `threat_id`**\*** _string_ — Threat ID (e.g. TL-2026-0042)<br>`limit` _number_ — Max shared-indicator pivots, rarest first (default 25, max 200). coverage.truncated is true when more exist; coverage counts the full set.
 
 ### `get_c2`
 
 Query the live C2 (command-and-control) intelligence center. Pick a view: 'beacons' (active C2 beacon snapshots — default), 'configs' (full extracted C2 configs), 'operators' (operator clusters), 'watermarks' (Cobalt Strike watermark index), 'correlations' (cross-C2 correlations), 'timeline' (activity over time), 'stats' (aggregate counts). Use generate_c2_blocklist when you want firewall-ready output rather than raw records.
 
-**Arguments:** `view` = `beacons` \| `configs` \| `operators` \| `watermarks` \| `correlations` \| `timeline` \| `stats` — Which C2 dataset to return (default 'beacons')<br>`limit` _number_ — Max records for the record-bearing views — beacons (default 50), configs (default 25), correlations (default 25). Max 100.<br>`offset` _number_ — Skip this many records — 'correlations' only; the aggregate summary block stays whole across pages.
+**Arguments:** `view` = `beacons` \| `configs` \| `operators` \| `watermarks` \| `correlations` \| `timeline` \| `stats` — Which C2 dataset to return (default 'beacons')<br>`limit` _number_ — Max records for the record-bearing views — beacons (default 50), configs (default 25), correlations (default 25). Max 100.<br>`offset` _number_ — Skip this many records — 'beacons' and 'correlations' only; the correlations summary block stays whole across pages.<br>`cursor` _string_ — 'beacons' only: the next_cursor from a prior beacons result; ignored when offset is given.
 
 ### `get_c2_dns_intel`
 
 Reverse-DNS unmasking of C2 beacon infrastructure: which domains ride on each beacon IP, infrastructure fidelity (dedicated / mixed / shared), compromised-host flags and sample domains. Answers "what else lives on this C2 infrastructure". Filter by fidelity to separate adversary-owned infrastructure from shared hosting.
 
-**Arguments:** `fidelity` = `dedicated` \| `mixed` \| `shared`<br>`compromised` _boolean_ — Only hosts flagged as compromised rather than adversary-owned.<br>`limit` _integer_ — Default 40, max 100.
+**Arguments:** `fidelity` = `dedicated` \| `mixed` \| `shared`<br>`compromised` _boolean_ — true: only hosts flagged as compromised (victims rather than adversary-owned). false: exclude those hosts. Omit for both.<br>`limit` _integer_ — Default 40, max 100.<br>`offset` _integer_ — Row offset for pagination (default 0).<br>`cursor` _string_ — Opaque pagination cursor (next_cursor from a prior result); ignored when offset is given.
 
 ### `generate_c2_blocklist`
 
-Compile a firewall-ready C2 blocklist of active command-and-control IPs observed recently. Returns deduplicated network indicators ready to drop into a denylist. Use this for actionable blocking; use get_c2 with view="beacons" when you need the underlying beacon detail.
+Compile a firewall-ready C2 blocklist of active command-and-control IPs observed recently (default: the last 30 days). Returns deduplicated network indicators ready to drop into a denylist, and `feed` (state, last_ok) so you can tell how fresh the C2 feed is. format="plain" or "hosts" returns the list in `lines`, one entry per line (join them with newlines for a file). Use this for actionable blocking; use get_c2 with view="beacons" when you need the underlying beacon detail.
 
-**Arguments:** _takes no arguments_
+**Arguments:** `since_days` _integer_ — Only beacons seen in the last N days (1-365, default 30).<br>`format` = `cidr` \| `plain` \| `hosts` — cidr (default): JSON with /32 CIDRs and per-IP detail; plain: one IP per line; hosts: hosts-file lines.<br>`framework` _string_ — C2 framework filter. Only Cobalt Strike is tracked today ("cobalt-strike"); any other value returns no rows and says so.
 
 
 ## L5 · Vulnerability
@@ -250,7 +251,7 @@ Rank by exploitation, not CVSS.
 
 Query the real-time CVE feed — validated against CVE.org and enriched from open sources (CVSS, EPSS exploitation probability, CISA KEV, public PoCs/exploits, nuclei detection templates, affected products/packages, plus platform-native trending/priority). Sort by trending|latest|priority|cvss|epss; filter by severity, kev (KEV-only), has_poc, nuclei, epss_min, window (days), vendor, cwe, or free-text query. Returns COMPACT cards {cve_id, severity, cvss, epss_percentile, is_kev, has_poc/exploit/nuclei, priority, trending, vendors, age} — call get_cve(id) for full detail.
 
-**Arguments:** `query` _string_ — Free-text: a CVE id or keyword (matches id + description)<br>`sort` _string_ — trending (default) | latest | priority | cvss | epss<br>`severity` _string_ — CRITICAL | HIGH | MEDIUM | LOW<br>`kev` _boolean_ — Only CISA KEV (known-exploited) CVEs<br>`has_poc` _boolean_ — Only CVEs with a public proof-of-concept<br>`nuclei` _boolean_ — Only CVEs with a nuclei detection template<br>`epss_min` _number_ — Minimum EPSS exploitation probability, 0-1<br>`window` _number_ — Only CVEs published within the last N days<br>`vendor` _string_ — Affected vendor/product substring<br>`cwe` _string_ — Weakness id, e.g. CWE-79<br>`limit` _number_ — default 30, max 100
+**Arguments:** `query` _string_ — Free-text: a CVE id or keyword (matches id + description)<br>`sort` _string_ — trending (default) | latest | priority | cvss | epss<br>`severity` _string_ — CRITICAL | HIGH | MEDIUM | LOW<br>`kev` _boolean_ — Only CISA KEV (known-exploited) CVEs<br>`has_poc` _boolean_ — Only CVEs with a public proof-of-concept<br>`nuclei` _boolean_ — Only CVEs with a nuclei detection template<br>`epss_min` _number_ — Minimum EPSS exploitation probability, 0-1<br>`window` _number_ — Only CVEs published within the last N days<br>`vendor` _string_ — Affected vendor/product substring<br>`cwe` _string_ — Weakness id, e.g. CWE-79<br>`limit` _number_ — default 30, max 100<br>`offset` _number_ — Row offset for pagination (default 0, max 10000).<br>`cursor` _string_ — Opaque pagination cursor (next_cursor from a prior result); ignored when offset is given.
 
 ### `get_cve`
 
@@ -283,15 +284,15 @@ Only some of these return actual rule text.
 
 ### `get_detections`
 
-List detection logic (Splunk SPL, Microsoft KQL, Sigma). Optionally filter by threat_id or detection type. Paginated: pass limit (default 15, max 100) and offset to page; the result includes has_more and an opaque next_cursor (reusable as offset/cursor).
+List detection logic (Splunk SPL, Microsoft KQL, Sigma). Optionally filter by threat_id, detection type, severity or ATT&CK technique (the rule's own mapping; a parent id also matches its sub-techniques). fields="meta" returns the rule roster without bodies (ids, names, severity, mapping, languages) — use it for lists and get_detection_detail for a body. Paginated: pass limit (default 15, max 100; max 90 with technique or fields) and offset to page; the result includes has_more and an opaque next_cursor (reusable as offset/cursor). Each open row names the language of each body in languages[].
 
-**Arguments:** `threat_id` _string_ — Filter detections for a specific threat ID<br>`type` _string_ — Detection type: spl, kql, or sigma<br>`limit` _number_ — Max results (default 15, max 100)<br>`offset` _number_ — Row offset for pagination (default 0). Or pass cursor from a prior result.<br>`cursor` _string_ — Opaque pagination cursor (next_cursor from a prior result). Decoded to an offset; ignored when offset is given.
+**Arguments:** `threat_id` _string_ — Filter detections for a specific threat ID<br>`type` _string_ — Detection type: spl, kql, or sigma<br>`severity` _string_ — Filter by rule severity: critical, high, medium, low, info<br>`technique` _string_ — ATT&CK or ATLAS technique id (T1059, T1059.001, AML.T0051); comma-separate up to 10. Matches rules whose own mitre_mapping names it.<br>`fields` = `meta` \| `full` — meta = no rule bodies (a roster); full (default) = rows with their SPL/KQL/Sigma bodies<br>`limit` _number_ — Max results (default 15, max 100)<br>`offset` _number_ — Row offset for pagination (default 0). Or pass cursor from a prior result.<br>`cursor` _string_ — Opaque pagination cursor (next_cursor from a prior result). Decoded to an offset; ignored when offset is given.
 
 ### `search_detections`
 
-Keyword search across detection logic (SPL/KQL/Sigma) by rule text, technique, or threat. Optionally filter by type (spl|kql|sigma) or severity. Paginated via limit (default 25, max 200) + offset.
+Keyword search across detection rules by rule name (and description where your access allows), or by ATT&CK technique: a query that is a technique id (T1059, T1059.001, AML.T0051) matches the rules whose own mitre_mapping names it (a parent id also matches its sub-techniques), and each row says how it matched in matched_via (technique | name | description). Narrow with threat_id, type (spl|kql|sigma) or severity; pass technique instead of query for a pure technique lookup. fields="meta" returns rows without rule bodies. Paginated via limit (default 25, max 200; max 90 with technique or fields) + offset.
 
-**Arguments:** `query`**\*** _string_ — Search term (rule text, CVE, technique, etc.)<br>`type` _string_ — Detection type: spl, kql, or sigma<br>`severity` _string_ — Filter by severity: critical, high, medium, low<br>`limit` _number_ — Max results (default 25, max 200)<br>`offset` _number_ — Row offset for pagination (default 0)
+**Arguments:** `query` _string_ — Search term (rule name or text, or a technique id such as T1059.001)<br>`threat_id` _string_ — Only rules of this threat (e.g. TL-2026-0042)<br>`technique` _string_ — ATT&CK or ATLAS technique id; comma-separate up to 10. Matches the rule's own mitre_mapping.<br>`type` _string_ — Detection type: spl, kql, or sigma<br>`severity` _string_ — Filter by severity: critical, high, medium, low<br>`fields` = `meta` \| `full` — meta = no rule bodies; full (default) = rows with their bodies<br>`limit` _number_ — Max results (default 25, max 200)<br>`offset` _number_ — Row offset for pagination (default 0)
 
 ### `get_detection_detail`
 
@@ -403,7 +404,7 @@ Campaign clusters the engine assembled from the similarity graph (connected comp
 
 Read precomputed cross-dataset correlations. Choose an engine: 'overview' (rollup of all engines — default), 'mitre-heatmap', 'adversary-infra', 'ioc-consensus', 'cve-velocity', 'attribution', 'detection-debt', or 'enrichment'. Use 'overview' first to see what's available, then drill into a specific engine.
 
-**Arguments:** `engine` = `overview` \| `mitre-heatmap` \| `adversary-infra` \| `ioc-consensus` \| `cve-velocity` \| `attribution` \| `detection-debt` \| `enrichment` — Which correlation engine to read (default 'overview')<br>`limit` _number_ — Paged engines only ('mitre-heatmap', 'ioc-consensus', 'detection-debt'): max rows, pre-ordered by score (default 50; max 200 for mitre-heatmap, 500 for the others). The summary block always covers the full set.<br>`offset` _number_ — Paged engines only: skip this many rows.
+**Arguments:** `engine` = `overview` \| `mitre-heatmap` \| `adversary-infra` \| `ioc-consensus` \| `cve-velocity` \| `attribution` \| `detection-debt` \| `enrichment` — Which correlation engine to read (default 'overview')<br>`limit` _number_ — Paged engines only ('mitre-heatmap', 'ioc-consensus', 'detection-debt', 'cve-velocity'): max rows, pre-ordered by score (cve-velocity: fastest first). Default 50 (cve-velocity 25); max 200 for mitre-heatmap and cve-velocity, 500 for the others. The summary block always covers the full set.<br>`offset` _number_ — Paged engines only: skip this many rows.
 
 
 ## L9 · Attack flow, D3FEND & ATLAS
@@ -476,13 +477,13 @@ Corroborating, never authoritative.
 
 ### `get_osint`
 
-Community corroboration for a threat or an indicator from the TL_OSINT_Scan layer (tweetfeed.live, CC0). Given threat_id, returns the matched community tags, the corroborated indicator count, and whether the community saw an indicator BEFORE our report. Given ioc_value, returns sightings, reporters, tags and every linked threat. Community-sourced and heavily concentrated (~73% of recent submissions come from a single reporter) — treat as corroborating evidence, never as authoritative attribution.
+Community corroboration for a threat or an indicator from the TL_OSINT_Scan layer (tweetfeed.live, CC0). Given threat_id, returns the matched community tags, the corroborated indicator count, and whether the community saw an indicator BEFORE our report. Given ioc_value, returns sightings, reporters, tags and every linked threat. Community-sourced and concentrated in a few reporters (each response carries the live share in its caveat block) — treat as corroborating evidence, never as authoritative attribution.
 
 **Arguments:** `threat_id` _string_ — Threat ID (e.g. TL-2026-1531). Returns the per-threat corroboration block.<br>`ioc_value` _string_ — Exact indicator (IP, domain, URL, MD5 or SHA256). Returns the community lookup + our linked threats.
 
 ### `search_xscan_indicators`
 
-Search the canonical community-indicator set (TL_OSINT_Scan / tweetfeed.live, CC0) — indicators the community reported that were also matched against our corpus. Filter by tag, type, ASN, country, minimum linked-threat count, or a value substring. There is deliberately NO family filter: the upstream AI family field is populated on under 1% of rows, so a family argument would return nothing. Use tag instead (community tags carry the family signal). Community-sourced and heavily concentrated (~73% of recent submissions come from a single reporter) — corroborating, not authoritative.
+Search the canonical community-indicator set (TL_OSINT_Scan / tweetfeed.live, CC0) — indicators the community reported that were also matched against our corpus. Filter by tag, type, ASN, country, minimum linked-threat count, or a value substring. There is deliberately NO family filter: the upstream AI family field is populated on under 1% of rows, so a family argument would return nothing. Use tag instead (community tags carry the family signal). Community-sourced and concentrated in a few reporters (see the caveat block in each response) — corroborating, not authoritative.
 
 **Arguments:** `tag` _string_ — Community tag substring, case-insensitive and normalized (e.g. phishing, asyncrat, c2)<br>`type` = `ip` \| `domain` \| `url` \| `sha256` \| `md5` — Indicator type<br>`asn` _string_ — Autonomous system, e.g. AS14061<br>`country` _string_ — Two-letter country code, e.g. RU<br>`min_threats` _number_ — Only indicators linked to at least this many of our threats<br>`q` _string_ — Substring match on the indicator value<br>`limit` _number_ — Max rows (default 25, max 100)<br>`offset` _number_ — Row offset for paging
 
@@ -505,7 +506,7 @@ One bundle usually beats four calls.
 
 ### `get_daily_intel_bundle`
 
-One-shot "what happened" bundle: the day's debrief (latest by default, or pass date) plus platform stats, the top recent threats as LEAN summary rows, and the correlations overview. Drill into any listed threat with get_threat(id).
+One-shot "what happened" bundle: the day's debrief (latest by default, or pass date) plus platform stats, the top recent threats as LEAN summary rows, and the correlations overview. A date with no debrief returns debrief:null, date_found:false and nearest_dates — never another day's debrief. Drill into any listed threat with get_threat(id).
 
 **Arguments:** `date` _string_ — Debrief date YYYY-MM-DD (default: latest)<br>`top_n` _number_ — How many top threats to include (default 5, max 10)
 

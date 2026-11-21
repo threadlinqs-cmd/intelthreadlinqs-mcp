@@ -3,3 +3,9 @@ dist
 *.mcpb
 .git
 .DS_Store
+skill
+skill-v9
+tests
+mcpb-build
+plugin
+scripts

@@ -19,11 +19,14 @@
  *   skill-files.js                the same file map as an ES module, imported by _worker.js
  *
  * Usage:  node scripts/build-skill.mjs [baseUrl]
+ *
+ * This is the v8 skill (served while the cfg:mcp-v9 flag is not "on"). The v9 skill is built by
+ * scripts/build-skill-v9.mjs from skill-v9/ and the local v9 package; both share skill-lib.mjs.
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { deflateRawSync, crc32 } from "node:zlib";
+import { parseSkillMeta, flatten, zip, skillModule } from "./skill-lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = join(HERE, "..", "skill");
@@ -42,6 +45,16 @@ if (!res.ok) {
   process.exit(1);
 }
 const cat = await res.json();
+// This builder documents the v8 surface only (the 81-name lane map below). Once the platform serves v9 at BASE
+// (cfg:mcp-v9 = on) its catalog is the v9 one; refuse it plainly, before anything is written: skill/dist/skill-files.js
+// is imported by the worker for the v8 surface. The v9 skill is scripts/build-skill-v9.mjs (local, no network); the npm
+// release does not run this script (Wave 4 review 1/9).
+const served = String((cat.server && cat.server.version) || cat.version || "");
+if (/^\d+/.test(served) && parseInt(served, 10) >= 9) {
+  console.error(`refusing to build the v8 skill: ${BASE}/mcp/catalog.json is server ${served} (the v9 surface). ` +
+    "The v8 skill is rebuilt only against a v8 catalog (a host with cfg:mcp-v9 off); the v9 skill is `npm run build:skill-v9`.");
+  process.exit(1);
+}
 const tools = cat.tools ?? [];
 if (tools.length === 0) {
   console.error("refusing to build: catalog returned zero tools");
@@ -109,8 +122,9 @@ let md = `# Tool reference — all ${tools.length} tools
 GENERATED FILE — do not edit by hand. Regenerate with \`npm run build:skill\`.
 Source: \`${BASE}/mcp/catalog.json\`.
 
-Arguments marked **\\*** are required. Tool **calls** need a Purple or Gold key (tier ≥ 3);
-introspection does not. Your host may prefix these names — match by suffix.
+Arguments marked **\\*** are required. Purple and Gold have full access to every tool; a free account
+gets 2 tool calls a day with the fan-out tools excluded (see SKILL.md, Access). Your host may
+prefix these names — match by suffix.
 
 `;
 
@@ -129,68 +143,30 @@ writeFileSync(join(REFS_DIR, "tools.md"), md, "utf8");
 // ── 2. collect the skill file map ───────────────────────────────────────────
 const files = {};
 files["SKILL.md"] = readFileSync(join(SKILL_DIR, "SKILL.md"), "utf8");
+
+// ── 2a. validate the SKILL.md frontmatter → SKILL_META (rules in skill-lib.mjs) ──
+let SKILL_META;
+try {
+  SKILL_META = parseSkillMeta(files["SKILL.md"]);
+} catch (e) {
+  console.error(`SKILL.md frontmatter: ${e.message}`);
+  process.exit(1);
+}
 for (const f of readdirSync(REFS_DIR).filter((f) => f.endsWith(".md")).sort()) {
   files[`references/${f}`] = readFileSync(join(REFS_DIR, f), "utf8");
 }
 const agentsPath = join(SKILL_DIR, "AGENTS.md");
 if (existsSync(agentsPath)) files["AGENTS.md"] = readFileSync(agentsPath, "utf8");
 
-// ── 3. flat single-file skill ───────────────────────────────────────────────
-// Frontmatter is stripped: the flat file is pasted into arbitrary assistants and a stray
-// YAML block reads as content. The body is written to stand alone without it.
-const stripFm = (s) => s.replace(/^---\n[\s\S]*?\n---\n+/, "");
-const order = ["SKILL.md", ...Object.keys(files).filter((f) => f.startsWith("references/")).sort()];
-let flat = `<!-- Threadlinqs Intelligence MCP — agent skill (single-file build)
+// ── 3. flat single-file skill (frontmatter stripped, see skill-lib.mjs) ─────
+const flat = flatten(
+  files,
+  `<!-- Threadlinqs Intelligence MCP — agent skill (single-file build)
      Generated from ${BASE}/mcp/catalog.json — ${tools.length} tools.
-     Canonical: https://intel.threadlinqs.com/mcp -->\n\n`;
-for (const f of order) {
-  flat += stripFm(files[f]).trim() + "\n\n---\n\n";
-}
-flat = flat.replace(/\n---\n\n$/, "\n");
+     Canonical: https://intel.threadlinqs.com/mcp -->\n\n`,
+);
 
-// ── 4. stored/deflated ZIP (no external deps) ───────────────────────────────
-function zip(map) {
-  const enc = new TextEncoder();
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
-  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
-  // Fixed DOS timestamp — a build-time clock would make the artifact non-reproducible.
-  const DOS_TIME = u16(0);
-  const DOS_DATE = u16(((2026 - 1980) << 9) | (1 << 5) | 1);
-
-  for (const [name, content] of Object.entries(map)) {
-    const raw = Buffer.from(enc.encode(content));
-    const comp = deflateRawSync(raw, { level: 9 });
-    const useDeflate = comp.length < raw.length;
-    const body = useDeflate ? comp : raw;
-    const nameBuf = Buffer.from(enc.encode(name));
-    const crc = crc32(raw);
-    const local = Buffer.concat([
-      u32(0x04034b50), u16(20), u16(0), u16(useDeflate ? 8 : 0),
-      DOS_TIME, DOS_DATE, u32(crc), u32(body.length), u32(raw.length),
-      u16(nameBuf.length), u16(0), nameBuf,
-    ]);
-    chunks.push(local, body);
-    central.push(Buffer.concat([
-      u32(0x02014b50), u16(20), u16(20), u16(0), u16(useDeflate ? 8 : 0),
-      DOS_TIME, DOS_DATE, u32(crc), u32(body.length), u32(raw.length),
-      u16(nameBuf.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), nameBuf,
-    ]));
-    offset += local.length + body.length;
-  }
-  const cd = Buffer.concat(central);
-  return Buffer.concat([
-    ...chunks, cd,
-    Buffer.concat([
-      u32(0x06054b50), u16(0), u16(0),
-      u16(central.length), u16(central.length),
-      u32(cd.length), u32(offset), u16(0),
-    ]),
-  ]);
-}
-
+// ── 4. stored/deflated ZIP (no external deps, skill-lib.mjs) ────────────────
 const zipBuf = zip(files);
 
 // ── 5. emit ─────────────────────────────────────────────────────────────────
@@ -203,11 +179,16 @@ writeFileSync(join(DIST, "intelthreadlinqs-mcp-skill.zip"), zipBuf);
 // request. Base64 costs ~33% over the raw bytes and buys a two-line worker handler.
 writeFileSync(
   join(DIST, "skill-files.js"),
-  `// GENERATED — do not edit. Regenerate with: npm run build:skill\n` +
-    `// Imported by _worker.js to serve /mcp/skill.md and /skills/intelthreadlinqs-mcp-skill.zip.\n` +
-    `// ${tools.length} tools, ${Object.keys(files).length} files, built from ${BASE}\n` +
-    `export const SKILL_FLAT = ${JSON.stringify(flat)};\n` +
-    `export const SKILL_ZIP_B64 = ${JSON.stringify(zipBuf.toString("base64"))};\n`,
+  skillModule(
+    [
+      "GENERATED — do not edit. Regenerate with: npm run build:skill",
+      "Imported by _worker.js to serve /mcp/skill.md and /skills/intelthreadlinqs-mcp-skill.zip.",
+      `${tools.length} tools, ${Object.keys(files).length} files, built from ${BASE}`,
+    ],
+    flat,
+    zipBuf,
+    SKILL_META,
+  ),
   "utf8",
 );
 

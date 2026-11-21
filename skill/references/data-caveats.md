@@ -160,7 +160,7 @@ block computed live from the producer rollup:
 
 | Field | Meaning |
 |---|---|
-| `reporter_concentration` | Share of recent submissions from the single largest reporter (recently ~73%). |
+| `reporter_concentration` | Share of recent submissions from the single largest reporter. Read the live value; never quote a fixed share. |
 | `top_reporter` | That reporter's handle. |
 | `bus_factor_50` | How many reporters it takes to reach half the volume. |
 | `active_producers` | Distinct reporters in the 7-day window. |
@@ -198,7 +198,7 @@ query would be an artifact of the missing field, not evidence of absence.
 
 | Tempted to say | Say instead |
 |---|---|
-| "The community independently corroborates this." | "N indicators were corroborated by community reports; the feed's recent volume is ~X% from a single reporter, so treat it as one source." |
+| "The community independently corroborates this." | "N indicators were corroborated by community reports; the feed's recent volume is dominated by a few reporters (read the live reporter_concentration), so treat it as one source." |
 | "4,294 community indicators for this threat." | "15 of this threat's indicators were corroborated; 4,294 is the community's total volume for the matched tags." |
 | "We see threats ~40 days before disclosure." | "For the ≤7-day cohort (N threats) the community flagged indicators a median of X days before our report; a long tail over 90 days reflects reused infrastructure, not warning." |
 | "OSINT attributes this to X." | The OSINT layer never attributes. Drop the sentence. |
@@ -288,19 +288,26 @@ reports "nothing exists" about something that does.
 | Signal | What it is | Correct response |
 |---|---|---|
 | JSON-RPC `-32001` | Missing or invalid API key. `data.upgrade_url` included. | **Terminal.** Surface the upgrade path. Do not retry, do not try other tools. |
-| JSON-RPC `-32002` | Authenticated but under-tier — tool calls need Purple/Gold (tier ≥ 3). `data.your_tier` / `data.required_tier` included. | **Terminal.** Same. Trying a "lighter" tool does not help; `get_started` and `health` are gated too. |
+| JSON-RPC `-32002` | Authenticated but refused — an unverified email (`data.email_unverified`), an unclaimed `tla_` agent key (`data.claim_required`: a human must claim it with its `claim_url`; request one with `POST /api/v1/agents/claim-link`), the free MCP plan switched off (`data.free_plan_on: false`), or an account below Blue. `data.your_tier` / `data.required_tier` included. | **Terminal.** Same. Trying a "lighter" tool does not help; `health` is gated too. |
+| Tool result `free_mcp_limit_reached` / `free_mcp_tool_excluded` | A free account spent its 2 calls for the Toronto day, or called one of the 11 fan-out tools. `isError: true`, details in `structuredContent`. | **Terminal for the day.** Report the upgrade path; do not retry. |
 | `tools/list` empty or refused | `tools/list` is tier-gated. | Read the unauthenticated twin: `GET /mcp/catalog.json` or `/mcp.md`. Never conclude the server has no tools. |
 | `matched: false` (`resolve_entity`, `get_malware_intelligence`, `get_tool_intelligence`, `get_campaign_intelligence`) | HTTP 200, name did not resolve. `detail_hint` suggests the fix. | "No canonical match for that name" — then retry via `resolve_entity`, not "the actor does not exist". |
 | Empty rows from `search_threats` with a `category` filter | Almost always an invented enum value. | Call `list_threat_categories` and re-run. Never report zero until the enum is confirmed. |
 | `hunt` error `Unknown hunt field: X` | Field not in the hunt grammar. | Call `hunt_schema` once and re-issue. This is a syntax failure, not an empty result. |
 | `search_corpus_semantic` 503 | The retrieval index is unavailable. | "Semantic search is unavailable", never "nothing matched". |
 | `community_error` on an OSINT payload | Upstream proxy failure. | "Community feed unavailable", never "no community data". |
-| `... [truncated: response exceeded 90000 chars — narrow your query` | The response hit the 90,000-character cap and was cut. | The tail is **missing**, not absent from the data. Narrow (tighter filters, lower `limit`, a more specific tool) and re-run. Never total, rank, or say "that's all" over a truncated payload. |
+| `truncated: true` with `truncation_note`, `returned`, `total` | The response hit the 90,000-character cap; whole elements were dropped from the end of the largest list and the JSON stayed valid. | The tail is **missing**, not absent from the data (`returned` of `total` rows came back). Narrow (tighter filters, lower `limit`, a more specific tool) and re-run. Never total, rank, or say "that's all" over a truncated payload. |
+| `unlock.credits_required: true` on a threat | HTTP 200: the account is out of TL Creds for this read, so the threat comes back locked. | **Terminal for this call.** Say the threat is locked and needs creds (name the cost if the body carries one); never report its rules or IOCs as absent; do not retry in a loop. Daily creds reset at midnight America/Toronto. |
+| Tool error `credits_required` (HTTP 402) | A single detection, export, tool call, OSINT or pivot read the account has too few creds for. | **Terminal for this call.** Same: say the call needs more creds, name the cost if the body carries one, do not retry in a loop. |
+| Tool error `api_cap_reached` (HTTP 429) | The call would take the day's spending past the account's daily API and MCP cap. The body carries `reset_at`. | **Terminal until `reset_at`.** Say the daily cap is reached and when it resets (midnight America/Toronto); never report the call's data as absent; do not retry before `reset_at`. |
 | Genuinely empty result, no marker, valid arguments | Real absence in this corpus. | "The corpus holds no record of X" — scoped to this corpus, never to the world. |
 
 Paging note that changes what "all" means: `search_threats`, `get_recent_threats`,
-`get_detections` and `search_xscan_indicators` honour `offset`/`cursor` and return
-`has_more` + `next_cursor`. `search_iocs`, `list_debriefs` and `search_actors` do **not**
+`get_detections`, `search_xscan_indicators`, `search_vulnerabilities`, `get_c2` (default beacons
+view), `get_c2_dns_intel`, `get_ioc_dns` and `search_iocs` honour `offset`/`cursor` and return
+`has_more` + `next_cursor` (`search_iocs` matches `value` as a prefix unless you pass
+`match="substring"`; `may_be_incomplete: true` there means indicators of reports you have not
+unlocked are withheld). `list_debriefs` and `search_actors` do **not**
 honour offset — you cannot page them. `has_more: true` there means "more may exist and you
 cannot reach it by paging"; narrow the filter instead, and say so rather than presenting a
 first page as the complete set.
@@ -317,6 +324,7 @@ first page as the complete set.
 - "no X exists" where the honest claim is "this corpus holds no X".
 - "unrelated" where the honest claim is "the engine holds no edge".
 - Any count taken from a truncated response.
+- "no detections" or "no indicators" for a threat whose `unlock.credits_required` is true: it is locked, not empty.
 - Any author name. The organization is Threadlinqs Intelligence; the team is Threadlinqs Team.
 
 ## 12. The one-line test
@@ -324,4 +332,4 @@ first page as the complete set.
 Before any assertion, ask: *if the reader acted on this and it was wrong, which field in the
 payload already told me so?* If a field did — `state`, `note`, `caveat`, `level`,
 `community_error`, `is_high_conf_low_signal`, `is_stale`, `matched`, `has_more`,
-`freshness_basis`, the truncation marker — put it in the sentence.
+`freshness_basis`, `truncated` — put it in the sentence.

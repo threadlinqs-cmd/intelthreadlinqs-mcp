@@ -1,20 +1,17 @@
 ---
 name: intelthreadlinqs-mcp-skill
 description: >-
-  Operate the Threadlinqs Intelligence MCP server — 73 threat-intelligence tools covering
-  threats, detection rules in Splunk SPL / Microsoft KQL / Sigma, IOCs, threat actors,
-  CVE/CWE enrichment, MITRE ATT&CK coverage and prediction, C2 infrastructure, the
-  correlation graph, and STIX 2.1 / ATT&CK Navigator export. Use this skill WHENEVER the
-  Threadlinqs, intelthreadlinqs or threadlinqs-intel MCP server is connected and the user
-  asks about a threat, a CVE, an IOC, an IP or domain or file hash, a malware family, an
-  offensive tool, a threat actor or APT group, an ATT&CK technique, a detection rule, a C2
-  beacon, a daily debrief or the threat landscape — or wants a STIX bundle, an ATT&CK
-  Navigator layer, or a firewall blocklist. It applies even when the user never says
-  "Threadlinqs" and even when the question sounds like generic security research. It routes
-  to the one-call composite tools instead of chaining five single-purpose calls, teaches the
-  hunt query grammar for any "how many X by Y" aggregate, and encodes the tier gate, the
-  response cap and the data caveats that keep answers honest. Read it BEFORE the first tool
-  call in a Threadlinqs session, not after one fails.
+  Operate the Threadlinqs Intelligence MCP server: threat-intelligence tools for threats,
+  detection rules (Splunk SPL, Microsoft KQL, Sigma), IOCs, threat actors, CVE/CWE
+  enrichment, MITRE ATT&CK coverage and prediction, C2 infrastructure, the correlation
+  graph, and STIX 2.1 / ATT&CK Navigator export. Use it WHENEVER the Threadlinqs,
+  intelthreadlinqs or threadlinqs-intel MCP server is connected and the user asks about a
+  threat, CVE, IOC, IP, domain, file hash, malware family, offensive tool, threat actor or
+  APT group, ATT&CK technique, detection rule, C2 beacon, daily debrief or the threat
+  landscape, or wants a STIX bundle, a Navigator layer or a firewall blocklist, even when
+  the user never says "Threadlinqs". It routes to the one-call composite tools, teaches
+  the hunt query grammar for "how many X by Y" aggregates, and encodes the tier gate,
+  response cap and data caveats. Read it BEFORE the first Threadlinqs tool call.
 ---
 
 # Threadlinqs Intelligence MCP
@@ -33,12 +30,30 @@ Read this before your first call. The routing table below is the part that matte
 
 ## Access, in one paragraph
 
-Tool **calls** require a Purple or Gold key (tier ≥ 3) in `THREADLINQS_API_KEY`.
-Introspection over MCP (`tools/list`) is gated too, but the HTTP twins
+Purple and Gold keys (tier >= 3, in `THREADLINQS_API_KEY` or over OAuth) have full access. A
+**free account** (Blue, verified email) gets **2 MCP tool calls a day** (Toronto day) with the
+full data view; `get_started` does not count. The 11 fan-out tools (`export_stix`,
+`export_attack_navigator`, `export_detection`, `get_latest_debrief`, `get_threat_bundle`,
+`get_threat_hunting_bundle`, `get_daily_intel_bundle`, `bulk_get_threats`, `bulk_get_cves`,
+`get_actor_intelligence`, `get_cve_intelligence`) stay Purple: a free account gets a terminal
+`free_mcp_tool_excluded` result and should use single lookups (`get_threat`, `search_threats`,
+`get_detections`) instead. Once the two calls are spent, the next call returns a tool result
+with `isError: true` and `structuredContent.error` = `free_mcp_limit_reached`: tell the user,
+link `https://intel.threadlinqs.com/pricing`, **stop**. Resources (`resources/read` of data)
+stay Purple or Gold.
+
+Introspection (`tools/list`) accepts a free account too, and the HTTP twins
 `GET /mcp/catalog.json` and `GET /mcp.md` are public, which is how registries index the
-server without a key. There is no free tier for the data. If you have no key, say so and
-point at `https://intel.threadlinqs.com/profile` — new accounts get a 7-day Purple trial.
-See `references/setup.md` for per-host install.
+server without a key. With no key at all, say so and point at
+`https://intel.threadlinqs.com/profile`. A Purple trial is available at checkout on the
+pricing page (a card is required); signup alone does not grant it. Calls spend the key owner's
+TL Creds (creds per threat unlocked, from daily creds first and then earned; purchased creds only
+with the account's opt-in), up to a daily API cap (prices: https://threadlinqs.com/tl-creds).
+A program with no human account can self-register for a free Blue `tla_` key
+(`POST https://intel.threadlinqs.com/api/v1/agents/register`, enforced daily quota; see
+`https://intel.threadlinqs.com/auth.md#agent-registration`). Until a human claims it
+(`claim_url`) that key opens the Blue REST routes only; once claimed, it reaches `/mcp` and acts
+with the claiming person's plan. See `references/setup.md` for per-host install.
 
 ## Before your first call
 
@@ -62,7 +77,7 @@ That is three calls of ceremony before you have learned anything.
 | Actor name or alias | `get_actor_intelligence` | `get_attribution_evidence`, `export_attack_navigator` |
 | A name you are not sure resolves | `resolve_entity` | then the matching pivot below |
 | An exact IOC value | `get_ioc_intelligence` | `get_ioc_blast_radius`, `get_ioc_dns`, `get_infrastructure_pivots` |
-| An IOC substring / partial | `search_iocs` | — (narrow it; paging is not honored) |
+| The start of an IOC value | `search_iocs` (prefix match by default) | pass `match="substring"` for a fragment from the middle of a value |
 | CVE ID | `get_cve_intelligence` | `get_cwe`, `bulk_get_cves` |
 | "What should we patch first?" | `search_vulnerabilities` with `kev` / `epss_min` | `get_cve_intelligence` on the top few |
 | Malware family | `get_malware_intelligence` | `resolve_entity` if the name is ambiguous |
@@ -108,9 +123,10 @@ covers the whole is the most common failure on this server.
 
 ## Budget discipline
 
-Responses are capped at **90,000 characters**. On overflow the payload ends with
-`... [truncated: response exceeded 90000 chars — narrow your query`. Recognise that string
-and escalate in this order:
+Responses are capped at **90,000 characters**. On overflow the payload stays **valid JSON**:
+whole elements are dropped from the end of the largest list and the object carries
+`truncated: true`, `truncation_note`, `returned` (rows kept) and `total` (rows that matched).
+Check `truncated` on every large result, and escalate in this order:
 
 1. add a filter, 2. lower `limit`, 3. switch to a narrower tool,
 4. for graph calls lower `depth` / `limit_nodes` / `limit_edges`, or use `get_entity_profile`
@@ -119,7 +135,9 @@ and escalate in this order:
 Retrying the identical call after truncation just burns the same budget again.
 
 **Paging is honored** on `search_threats`, `get_recent_threats`, `get_detections`,
-`search_xscan_indicators`. It is **not** honored on `search_iocs`, `list_debriefs`,
+`search_xscan_indicators`, `search_vulnerabilities`, `get_c2` (its default beacons view),
+`get_c2_dns_intel`, `get_ioc_dns` and `search_iocs` (newest first; `value` is a prefix match unless you
+pass `match="substring"` or `match="exact"`). It is **not** honored on `list_debriefs` or
 `search_actors` — narrow the query instead of incrementing an offset that does nothing.
 
 ## Errors — both terminal
@@ -127,10 +145,11 @@ Retrying the identical call after truncation just burns the same budget again.
 | Code | Meaning | Do |
 |---|---|---|
 | `-32001` | No key, or the key is invalid | Say so, link `https://intel.threadlinqs.com/profile`, **stop** |
-| `-32002` | Authenticated but tier < 3 | Report the tier and the upgrade path, **stop** |
+| `-32002` | Authenticated but refused: unverified email, an unclaimed `tla_` agent key (`data.claim_required`; `POST /api/v1/agents/claim-link` gives a human a `claim_url`), the free MCP plan switched off, or an account below Blue | Report the reason in `message` and the upgrade or claim path, **stop** |
+| `free_mcp_limit_reached` / `free_mcp_tool_excluded` (a tool result with `isError: true`, not a JSON-RPC error) | A free account spent its 2 daily calls, or called a fan-out tool | Report it and the upgrade path, **stop** (the limit resets at midnight Toronto time) |
 
-Neither is retryable, and neither gets better by trying a different tool. Do not walk the
-catalog hoping one is ungated — none are.
+None is retryable, and none gets better by trying a different tool. Do not walk the
+catalog hoping one is ungated.
 
 An **empty result is not an error**, and on this server it is most often a *guessed enum*.
 Categories, severities, C2 views, correlation engines, node types and seed types are all
@@ -162,7 +181,7 @@ Fuller treatment in `references/data-caveats.md`.
 
 | File | Read it when |
 |---|---|
-| `references/tools.md` | You need a tool's exact arguments and return shape (all 73, generated from the live catalog) |
+| `references/tools.md` | You need a tool's exact arguments and return shape (all 81, generated from the live catalog) |
 | `references/hunt-tlql.md` | Any aggregate or cross-observable question |
 | `references/recipes.md` | You want a proven end-to-end workflow |
 | `references/vocabularies.md` | Before passing any category, severity, view, engine or type |

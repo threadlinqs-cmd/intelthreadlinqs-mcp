@@ -14,11 +14,11 @@ the prompt name is given so the two surfaces stay in step.
 | Rule | Detail |
 |---|---|
 | Names | Tool names are written bare. Hosts may prefix them (`mcp__threadlinqs-intel__get_threat`) — match by suffix. |
-| Tier | Every tool call needs Purple/Gold. `-32001` = missing/invalid key, `-32002` = authenticated but under-tier. **Both are terminal.** Surface the upgrade path; do not retry with a different tool. |
+| Tier | Purple/Gold have full access; a free account gets 2 calls a day with the fan-out tools excluded. `-32001` = missing/invalid key, `-32002` = authenticated but refused, `free_mcp_limit_reached` / `free_mcp_tool_excluded` = free-plan limits (tool results). **All are terminal.** Surface the upgrade path; do not retry with a different tool. |
 | Discovery | `tools/list` is tier-gated. Unauthenticated twins: `GET /mcp/catalog.json` and `/mcp.md`. |
-| Truncation | Responses cap at **90,000 characters** and end with `... [truncated: response exceeded 90000 chars — narrow your query`. If you see that string, narrow (filters, `limit`, lower `depth`) — do not stitch guesses over the cut. |
+| Truncation | Responses cap at **90,000 characters**. An oversized result stays valid JSON with `truncated: true`, `truncation_note`, `returned` and `total`. If `truncated` is true, narrow (filters, `limit`, lower `depth`) — do not stitch guesses over the cut. |
 | Hunt | `hunt_schema` once per session before the first `hunt`. |
-| Paging | Honored on `search_threats`, `get_recent_threats`, `get_detections`, `search_xscan_indicators` (`limit` + `offset`/`cursor`). **Not** honored on `search_iocs`, `list_debriefs`, `search_actors` — narrow instead. |
+| Paging | Honored on `search_threats`, `get_recent_threats`, `get_detections`, `search_xscan_indicators`, `search_iocs` (`limit` + `offset`/`cursor`). **Not** honored on `list_debriefs`, `search_actors` — narrow instead. |
 | Enums | Never guess a category. `list_threat_categories` first. Never pivot on a raw alias — `resolve_entity` first. |
 | Bulk | `bulk_get_threats` / `bulk_get_cves` take up to 20 ids per call. Never loop `get_threat` over a known list. |
 
@@ -34,7 +34,7 @@ the prompt name is given so the two surfaces stay in step.
 | 3 | `list_threat_categories` | none | The only valid vocabulary for `search_threats` `category`. |
 | 4 | `hunt_schema` | none | TLQL field grammar. Required before `hunt`. |
 
-**Empty/failed:** if step 1 returns `-32001`/`-32002`, stop — this is an access problem, not a data problem. Report the tier requirement and the upgrade path.
+**Empty/failed:** if step 1 returns `-32001`/`-32002` or a `free_mcp_*` result, stop — this is an access problem, not a data problem. Report the tier requirement and the upgrade path.
 **Present:** state in one line what the server can and cannot answer, then aim the real question.
 
 ## R1 — Triage a CVE
@@ -95,7 +95,7 @@ the prompt name is given so the two surfaces stay in step.
 | 2 | `get_ioc_blast_radius` | `value`, `depth=2` | Sizes what else it reaches. `depth` 1=threats, 2=+techniques, 3=+actors & sibling IOCs. |
 | 3 | `get_similar_threats` | `id="TL-…"`, `limit=10` | Only from a linked threat that matters. |
 
-**Anti-pattern:** `search_iocs` → N × `get_threat` → N × `get_actor`. That is exactly what `get_ioc_intelligence` replaces. Use `search_iocs` only when you have a **substring**, not an exact value — and remember it does not page.
+**Anti-pattern:** `search_iocs` → N × `get_threat` → N × `get_actor`. That is exactly what `get_ioc_intelligence` replaces. Use `search_iocs` only when you have part of a value, not an exact one: `value` matches as a **prefix** by default; pass `match="substring"` for a fragment from the middle (slower). It pages (`has_more`, `next_cursor`).
 **Empty:** nothing linked means the corpus has not seen this indicator. Say so plainly; consider R11 (OSINT) for community corroboration, clearly labelled as community-sourced.
 **Present:** which threats and actors it ties to, consensus confidence, recommended block or detect action.
 
@@ -258,7 +258,7 @@ the prompt name is given so the two surfaces stay in step.
 | 1 | `generate_c2_blocklist` | **none** | Takes no arguments at all. Firewall-ready active C2 IPs. |
 | 2 | `get_c2` | `view="operators"`, `limit=50` | `view` ∈ `beacons\|configs\|operators\|watermarks\|correlations\|timeline\|stats`. Use `beacons` for underlying detail. |
 | 3 | `get_c2_dns_intel` | `compromised=false` | Folds in unmasked C2 domains, excluding victim hosts. |
-| 4 | `search_iocs` | `value="…"`, `type="network"`, `limit=100` | Only for indicators outside the live C2 feed. Does not page. |
+| 4 | `search_iocs` | `value="…"`, `type="network"`, `limit=100` | Only for indicators outside the live C2 feed. Prefix match by default (`match="substring"` for a fragment); pages with `next_cursor`. |
 
 **Present:** one deduplicated list of IPs and domains with the threats or operator clusters they map to, **and the age of the data** — a stale entry must never be blocked blind.
 
@@ -383,9 +383,9 @@ with `limit=30` for surrounding context. `list_debriefs` does **not** page — r
 
 ## Failure handling, in order
 
-1. **`-32001` / `-32002`** — terminal. Report the tier requirement and the upgrade path. Do not
+1. **`-32001` / `-32002` / `free_mcp_*`** — terminal. Report the tier requirement and the upgrade path. Do not
    probe other tools; the gate is checked before tool existence, so a different name proves nothing.
-2. **Truncation marker** — narrow the query (tighter filters, lower `limit`, lower `depth`,
+2. **`truncated: true`** — narrow the query (tighter filters, lower `limit`, lower `depth`,
    `include="summary"`), then re-run. Never summarize across a truncation boundary as if complete.
 3. **Empty result** — relax one predicate at a time. Empty is often the answer; report it.
 4. **Unknown enum / no match** — go back to the vocabulary tool (`list_threat_categories`,

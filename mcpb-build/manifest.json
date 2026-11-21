@@ -3,9 +3,9 @@
   "manifest_version": "0.4",
   "name": "intelthreadlinqs-mcp",
   "display_name": "Threadlinqs Intelligence",
-  "version": "8.2.1",
-  "description": "81 cyber-threat-intelligence tools — threats, SPL/KQL/Sigma detections, IOCs, actors, C2, MITRE ATT&CK. Purple tier.",
-  "long_description": "Threadlinqs Intelligence is a premium cyber-threat-intelligence MCP server. It exposes 81 tools across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE, correlations, and Purple-tier composite/aggregation intelligence — plus prompts, resources (threadlinqs:// URIs), completions, and STIX 2.1 / ATT&CK Navigator export.\n\nThis is a **Purple-tier feature (tier >= 3, Purple + Gold plans)**. The server starts without a key so clients and registries can introspect the catalog, but every tool CALL is gated server-side and requires a valid Purple/Gold key — there is no free or anonymous access to intelligence data. Get a key at https://intel.threadlinqs.com/profile. Note that signing up alone lands you on Blue (tier 1) — a 7-day Purple trial is offered at checkout on the pricing page, not on signup.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
+  "version": "9.0.0",
+  "description": "25 cyber-threat-intelligence tools — threats, SPL/KQL/Sigma detections, IOCs, actors, C2, MITRE ATT&CK. Purple and Gold in full; a free account has a daily allowance.",
+  "long_description": "Threadlinqs Intelligence is a cyber-threat-intelligence MCP server. It exposes 25 tools, each covering a family through a view or sections argument, across curated threats, detection logic (Splunk SPL / Microsoft KQL / Sigma), IOCs, threat actors, C2 infrastructure, MITRE ATT&CK chains, CVE/CWE and correlations, plus prompts, resources, completions and STIX 2.1 / ATT&CK Navigator export. Every earlier tool name stays callable, though it is no longer listed. The tool list you see is whatever the platform serves when the server starts, so it follows the platform without a new release.\n\nPurple and Gold have full access. A free account (verified email) has a daily allowance of tool calls; bundles, daily briefs and exports are refused on it before they spend anything, and single lookups stay open. An agent key (tla_) works once a person has claimed it, with that person's plan. The server starts without a key so clients and registries can introspect the catalog, but every tool CALL is gated server-side and needs a valid key; there is no anonymous access to intelligence data. Get a key at https://intel.threadlinqs.com/profile; plans are on the pricing page.\n\nPrefer zero-install? The same server is available as a remote connector at https://intel.threadlinqs.com/mcp (OAuth 2.1).",
   "author": {
     "name": "Threadlinqs Intelligence",
     "email": "contact@threadlinqs.com",
@@ -13,7 +13,7 @@
   },
   "homepage": "https://intel.threadlinqs.com/mcp",
   "documentation": "https://intel.threadlinqs.com/mcp",
-  "support": "https://intel.threadlinqs.com/mcp",
+  "support": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp.git"
@@ -55,7 +55,7 @@
     "api_key": {
       "type": "string",
       "title": "Threadlinqs API key (tl_…)",
-      "description": "Your Purple or Gold API key from intel.threadlinqs.com → Profile → API. The MCP server is Purple-tier only (tier >= 3). It starts without a key so clients and registries can introspect the tool catalog, but every tool CALL is gated and returns an under-tier error until a valid Purple/Gold key is set. Stored in your OS keychain.",
+      "description": "Your API key from intel.threadlinqs.com → Profile → API. Purple and Gold have full access; a free account has a daily allowance of calls. The server starts without a key so clients and registries can introspect the tool catalog, but every tool CALL needs a valid key. Stored in your OS keychain.",
       "sensitive": true,
       "required": true
     }

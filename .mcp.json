@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "threadlinqs": { "type": "http", "url": "https://intel.threadlinqs.com/mcp" }
+  }
+}

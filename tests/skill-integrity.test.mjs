@@ -12,18 +12,18 @@
  *   1. every tool-shaped token in every skill file is a real tool (or a known prompt name)
  *   2. no banned marketing words
  *   3. the built artifacts exist, are non-trivial, and the ZIP is a real ZIP
- *   4. SKILL.md keeps its frontmatter, and the flat build has it stripped
+ *   4. SKILL.md keeps its frontmatter (spec name, description 1-1024, SKILL_META in sync), and the flat build has it stripped
  *
  * Network-optional: with no egress, check 1 is skipped with a visible notice.
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL = join(HERE, "..", "skill");
 const DIST = join(SKILL, "dist");
-const WORKER = join(HERE, "..", "..", "_worker.js");
+const WORKER = join(HERE, "..", "..", "..", "worker", "_worker.js");
 const BASE = process.env.THREADLINQS_API_URL || "https://intel.threadlinqs.com";
 
 let failures = 0;
@@ -38,22 +38,38 @@ for (const f of readdirSync(refsDir).filter((f) => f.endsWith(".md"))) {
 }
 
 // ── 1. tool-name integrity ──────────────────────────────────────────────────
+// The v8 skill documents the v8 registry, so its source of truth is MCP_TOOLS in the worker (in the monorepo, no network).
+// Without the worker (a published copy of this package) the live catalog is used, but only while it is a v8 catalog: once
+// the platform serves v9 (cfg:mcp-v9 = on) /mcp/catalog.json lists the 25 v9 tools and says nothing about this skill.
 let real = null;
-try {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 15000);
-  const r = await fetch(`${BASE}/mcp/catalog.json`, { signal: ctrl.signal });
-  clearTimeout(t);
-  if (r.ok) real = new Set((await r.json()).tools.map((x) => x.name));
-  else fail(`catalog fetch returned ${r.status}`);
-} catch {
-  console.log(`  SKIP  tool-name check — could not reach ${BASE}`);
+let workerSrc = null;
+try { workerSrc = readFileSync(WORKER, "utf8"); } catch { /* not in the monorepo */ }
+const block = workerSrc && workerSrc.match(/\nconst MCP_TOOLS = \[([\s\S]*?)\n\];/);
+if (block) {
+  const names = [...block[1].matchAll(/^  \{\s*name: '([a-z0-9_]+)'/gm)].map((m) => m[1]);
+  if (names.length < 50 || new Set(names).size !== names.length) fail(`MCP_TOOLS parse: ${names.length} names`);
+  else { real = new Set(names); pass(`tool names from the worker's MCP_TOOLS (${names.length}, the v8 registry)`); }
+} else {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    const r = await fetch(`${BASE}/mcp/catalog.json`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      const cat = await r.json();
+      const v = String((cat.server && cat.server.version) || "");
+      if (/^\d+/.test(v) && parseInt(v, 10) >= 9) console.log(`  SKIP  tool-name check — ${BASE} serves the v9 catalog (${v}); the v8 skill is checked against the worker's MCP_TOOLS`);
+      else real = new Set(cat.tools.map((x) => x.name));
+    } else fail(`catalog fetch returned ${r.status}`);
+  } catch {
+    console.log(`  SKIP  tool-name check — could not reach ${BASE}`);
+  }
 }
 
 // Prompt names legitimately appear in prose (recipes map to them) and are not tools.
 let promptNames = new Set();
 try {
-  const src = readFileSync(WORKER, "utf8");
+  const src = workerSrc ?? readFileSync(WORKER, "utf8");
   const m = src.match(/const MCP_PROMPTS = \[[\s\S]*?\n\];/);
   if (m) promptNames = new Set([...m[0].matchAll(/name:\s*'([a-z0-9_]+)'/g)].map((x) => x[1]));
 } catch { /* worker not present in a published package — check still runs without it */ }
@@ -117,6 +133,30 @@ if (existsSync(flatPath)) {
   const flat = readFileSync(flatPath, "utf8");
   if (/^\s*---\s*\nname:/.test(flat)) fail("dist/skill.md still carries frontmatter — it is pasted into arbitrary assistants");
   else pass("dist/skill.md has frontmatter stripped");
+}
+
+// Agent Skills spec / Claude skill upload: name and description rules, and the SKILL_META the
+// worker's agent-skills index names the archive with must equal the parsed frontmatter.
+{
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(files["SKILL.md"]);
+  const lines = fm ? fm[1].split("\n") : [];
+  const nm = /^name: (\S+)$/.exec(lines[0] || "");
+  const body = lines.slice(2);
+  const shapeOk = !!nm && lines[1] === "description: >-" && body.length > 0 && body.every((l) => /^  [^ \t]/.test(l) && !/\t/.test(l));
+  if (!shapeOk) fail("SKILL.md frontmatter is not `name:` + a folded `description: >-` block (two-space lines, no blank/more-indented/tab lines)");
+  else {
+    const name = nm[1];
+    const description = body.map((l) => l.trim()).join(" ");
+    if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) && name.length <= 64 && !/anthropic|claude/.test(name)) pass(`frontmatter name "${name}" follows the spec`);
+    else fail(`frontmatter name "${name}" breaks the spec (a-z0-9, single hyphens, <= 64, no reserved words)`);
+    if (description.length >= 1 && description.length <= 1024 && !/[<>]/.test(description)) pass(`frontmatter description is ${description.length} chars (1-1024), no XML`);
+    else fail(`frontmatter description is ${description.length} chars or contains < > (max 1024, no XML)`);
+    if (existsSync(embedPath)) {
+      const mod = await import(pathToFileURL(embedPath).href);
+      if (mod.SKILL_META && mod.SKILL_META.name === name && mod.SKILL_META.description === description) pass("dist/skill-files.js SKILL_META equals the parsed frontmatter");
+      else fail("dist/skill-files.js SKILL_META is missing or differs from SKILL.md — run: npm run build:skill");
+    }
+  }
 }
 
 console.log(failures === 0 ? "\nPASS — skill integrity clean" : `\nFAIL — ${failures} problem(s)`);

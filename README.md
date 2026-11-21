@@ -1,26 +1,68 @@
 # intelthreadlinqs-mcp
 
-> MCP server for [Threadlinqs Intelligence](https://intel.threadlinqs.com) — 81 tools and 25 analyst-playbook prompts across threat intelligence, detections, IOCs, threat actors, MITRE attack-chains, C2 infrastructure, and Purple-tier composite intelligence. Drop-in for Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
+> Threat intelligence MCP server for IOC enrichment, detection rules (Sigma, SPL, KQL) and MITRE ATT&CK. Every threat comes with one complete detection in Splunk SPL, Microsoft KQL and Sigma, free for everyone; a free account adds daily TL Creds to unlock the rest. The MCP server needs an API key or an OAuth sign-in on every call; Purple and Gold have full access.
+>
+> MCP server for [Threadlinqs Intelligence](https://intel.threadlinqs.com): <!--count:tools-->25<!--/count--> tools and <!--count:prompts-->26<!--/count--> analyst-playbook prompts across threat intelligence, detections, IOCs, threat actors, MITRE attack-chains, C2 infrastructure and correlations. Drop-in for Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
 
 [![npm version](https://img.shields.io/npm/v/intelthreadlinqs-mcp.svg)](https://www.npmjs.com/package/intelthreadlinqs-mcp)
 [![Node](https://img.shields.io/node/v/intelthreadlinqs-mcp.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## What changed in 9.0.0
+
+This package is a thin stdio proxy over the platform's remote `/mcp` endpoint, and 9.0.0 follows the platform's move to MCP v9.
+
+- **A shorter tool list: <!--count:tools-->25<!--/count--> tools.** Each tool covers a family through a `view`, `include` or `sections` argument (`get_threat` takes sections, `export` takes a `kind`, `c2` takes a `view`). Results are bounded and normalised, lists page with `cursor`, and errors are tool results with a stable `code`, `retryable` and `retry_after_s`.
+- **Every earlier tool name still works.** Every tool name from 8.x (and the v7 names this package aliased) stays callable. They are no longer listed: `tools/list` shows the current tools only. A name that has no new equivalent (simulations, transcripts, technique rules, ATLAS, flow-similar, threat level and a few more) is a *legacy name, still callable, not listed*; it answers as before.
+- **The tool list is whatever the platform serves.** The proxy asks the platform for `tools/list` on every start, so it follows the platform without a new release. The bundled catalog is only the offline fallback (see Architecture).
+- **It works against both platform surfaces.** The proxy sends `Accept: application/json, text/event-stream` and reads either a plain JSON answer or a Server-Sent-Events answer, so it keeps working while the platform serves the earlier surface or the current one.
+- **Failures keep their detail.** A refused call keeps the platform's own code, data and retry hint, and the proxy adds the remedy: a missing or rejected key, an agent key nobody has claimed yet, an unverified email, the free plan switched off, or a plan that does not cover the call.
+- **The proxy identifies itself** with `User-Agent: intelthreadlinqs-mcp/<version>` (the package name and version, nothing about you or your machine).
+
 ## What this gives your AI agent
 
-- **1,700+ threats** with full metadata, severity, attribution, CVE/CWE, MITRE
-- **16,000+ detection rules** in Splunk SPL, Microsoft KQL, and Sigma YAML
-- **47,000+ IOCs** (IPs, domains, hashes, URLs, behavioral)
-- **500+ threat actors** with TTPs profiles and cross-actor infrastructure links
-- **140+ live C2 beacons** (Cobalt Strike) with watermark clustering + operator attribution
-- **Daily intelligence debriefs** + 7-engine correlation analytics
-- **MITRE attack-chain prediction** based on 4,271 observed technique transitions
+- **Curated threats** with severity, attribution, CVE/CWE and MITRE mapping
+- **Detection rules** in Splunk SPL, Microsoft KQL and Sigma YAML
+- **IOCs** (IPs, domains, hashes, URLs, behavioral) with the threats and actors behind them
+- **Threat actors** with TTP profiles and cross-actor infrastructure links
+- **Live C2 beacons** with watermark clustering and operator attribution
+- **Daily intelligence briefs** and correlation analytics
+- **MITRE attack-chain prediction** from observed technique transitions
 
-## Quick install
+Corpus sizes change daily; ask the `status` tool, or see `GET /api/v1/stats` on the platform.
+
+## Remote (no install)
+
+The same server runs at **`https://intel.threadlinqs.com/mcp`** (MCP Streamable HTTP). Sign in with OAuth, or send `Authorization: Bearer tl_...` with an API key. Nothing to install and no Node needed.
+
+- **claude.ai and Claude Desktop:** Settings > Connectors > Add custom connector, paste `https://intel.threadlinqs.com/mcp`, then sign in.
+- **Claude Code:**
+
+  ```bash
+  claude mcp add --transport http threadlinqs-intel https://intel.threadlinqs.com/mcp
+  # or with an API key instead of OAuth:
+  claude mcp add --transport http threadlinqs-intel https://intel.threadlinqs.com/mcp --header "Authorization: Bearer tl_..."
+  ```
+
+- **Cursor** (`.cursor/mcp.json`):
+
+  ```json
+  {"mcpServers":{"threadlinqs-intel":{"url":"https://intel.threadlinqs.com/mcp","headers":{"Authorization":"Bearer tl_..."}}}}
+  ```
+
+- **VS Code** (`.vscode/mcp.json`, signs in with OAuth):
+
+  ```json
+  {"servers":{"threadlinqs-intel":{"type":"http","url":"https://intel.threadlinqs.com/mcp"}}}
+  ```
+
+- **ChatGPT:** in developer mode, add a connector with the same URL and sign in with OAuth (ChatGPT cannot send a custom Bearer header). *Pending verification:* this path has not been confirmed end to end yet.
+
+## Quick install (local stdio proxy)
 
 ```bash
 # No install needed — npx will fetch it
-npx -y intelthreadlinqs-mcp
+npx -y intelthreadlinqs-mcp@latest
 ```
 
 ### Claude Code
@@ -28,10 +70,10 @@ npx -y intelthreadlinqs-mcp
 ```bash
 claude mcp add threadlinqs-intel \
   -e THREADLINQS_API_KEY=tl_your_key_here \
-  -- npx -y intelthreadlinqs-mcp
+  -- npx -y intelthreadlinqs-mcp@latest
 ```
 
-The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intelligence MCP server is a **Purple-tier feature** — it checks your key's tier at startup and warns if it is missing, invalid, or below Purple. The server still starts and exposes its tool catalog so clients and registries can introspect it, but **tool calls are gated server-side**: without a Purple or Gold key (tier ≥ 3) they return an `Access denied` error instead of data. There is no free or anonymous access to gated intelligence.
+The `-e THREADLINQS_API_KEY` is **required in practice**. Purple and Gold keys have full access; a free account (verified email) has a daily allowance of calls. The server starts without a key and exposes its tool catalog so clients and registries can introspect it, but **tool calls are gated server-side**: with no valid key they return an authentication error instead of data. There is no anonymous access to the data.
 
 ### Claude Desktop
 
@@ -42,7 +84,7 @@ The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intell
   "mcpServers": {
     "threadlinqs-intel": {
       "command": "npx",
-      "args": ["-y", "intelthreadlinqs-mcp"],
+      "args": ["-y", "intelthreadlinqs-mcp@latest"],
       "env": {
         "THREADLINQS_API_KEY": "tl_your_key_here"
       }
@@ -60,7 +102,7 @@ The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intell
   "mcpServers": {
     "threadlinqs-intel": {
       "command": "npx",
-      "args": ["-y", "intelthreadlinqs-mcp"],
+      "args": ["-y", "intelthreadlinqs-mcp@latest"],
       "env": {
         "THREADLINQS_API_KEY": "tl_your_key_here"
       }
@@ -79,7 +121,7 @@ The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intell
     "threadlinqs-intel": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "intelthreadlinqs-mcp"],
+      "args": ["-y", "intelthreadlinqs-mcp@latest"],
       "env": {
         "THREADLINQS_API_KEY": "tl_your_key_here"
       }
@@ -90,71 +132,55 @@ The `-e THREADLINQS_API_KEY` is **required in practice**. The Threadlinqs Intell
 
 ## Getting an API key
 
-Sign up at [intel.threadlinqs.com](https://intel.threadlinqs.com), verify your email, and head to **Profile → API Key**. Note that signing up alone lands you on Blue (tier 1) — MCP tool calls need tier ≥ 3, so they return an under-tier error until you upgrade. A **7-day Purple free trial** is offered at checkout on the pricing page.
+Sign up at [intel.threadlinqs.com](https://intel.threadlinqs.com), verify your email, and head to **Profile → API Key**. Signing up alone gives you the free plan; Purple removes the daily call limit and the free-plan exclusions. A **Purple trial** is offered at checkout on the pricing page (a card is required). Prices are on the [pricing page](https://threadlinqs.com/#pricing).
 
-## Access — Purple tier only
+## Access
 
-The MCP server is a **Purple-tier feature**: **all 81 tools require a Purple or Gold subscription (tier ≥ 3)**. The server checks your key's tier at startup and warns when it is missing, invalid, or below Purple — it still starts and lists its tools so clients can introspect the catalog, but the tier is enforced server-side on every call, so gated tools return `Access denied` rather than data. There is no free or anonymous access to gated intelligence.
+Purple and Gold have full access to every tool. The `account` tool answers what your plan is, what is left today and what each paid call costs.
 
-| Tier | Price | MCP access |
-|---|---|---|
-| **Purple** | $11.99/mo | ✅ All 81 tools |
-| **Gold** | Custom | ✅ All 81 tools (team — contact sales) |
-| Lower tiers | — | ❌ No MCP access (the public website + REST API keep their own free Blue tier) |
+**Free plan.** A free account (verified email) has a daily allowance of calls with the full data view, and each call you make spends one of them (a call that fans out inside the platform still spends one). Daily briefs and the STIX, ATT&CK Navigator and detection-pack exports are refused up front, before anything is spent; single lookups stay open. The C2 blocklist export runs but returns only its summary: downloading the file needs Purple or Gold. When the allowance is used up the next call returns a tool result with `isError: true` and a `rate_limited` error (`details.code` is `free_mcp_limit_reached`) that says when it renews. MCP resources with data stay Purple or Gold.
 
-A **7-day Purple free trial** is available at checkout on the pricing page — it is not granted by signup alone. Tool calls enforce the tier server-side and return a structured 403 if your subscription lapses.
+**Agent keys.** A self-registered `tla_` agent key opens the free REST routes only. Once a person claims it with its `claim_url` (request one with `POST /api/v1/agents/claim-link`), it reaches `/mcp` and acts with that person's plan. Until then `/mcp` answers `-32002` with `claim_required`, and the proxy tells you how to get it claimed.
 
-## v4.3 flagship tools (Purple tier)
+**Failures.** The proxy reports a protocol-level refusal with the platform's message plus a remedy, and puts the machine-readable fields in the result's `_meta["threadlinqs/error"]`: `-32001` (HTTP 401) is a missing or rejected key; `-32002` (HTTP 403) is a plan or account-state refusal (unclaimed agent key, unverified email, free plan off, plan too low). A refusal of one call (`credits_required`, `api_cap_reached`, `rate_limited`, `tier_required`) arrives as an ordinary tool result and is passed through unchanged, including `retryable` and `retry_after_s`.
 
-The composite tools are the reason most people upgrade to Purple — each one replaces 5–7 single-purpose MCP calls.
+Every call spends the account's TL Creds like an API key (creds per threat unlocked, daily creds first and then earned; HTTP 402 `credits_required` or a locked threat means the account is out of creds for that call, and HTTP 429 `api_cap_reached` means the daily spending cap is reached until its `reset_at` time). Prices and allowances: https://threadlinqs.com/tl-creds
 
-### `get_threat_hunting_bundle` ⭐
+## The tools
 
-**Input:** `threat_id` (e.g. `"TL-2026-0599"`)
+The list below is generated from the catalog bundled with this release; the live `tools/list` is authoritative.
 
-**Returns:** complete hunt dossier in one shot — threat metadata, full IOC list, SPL/KQL/Sigma detection queries, similar threats, simulation commands, and cross-threat infrastructure pivots. The single most useful tool in the platform.
+<!--tools:begin-->
+| tool | what it does |
+|---|---|
+| `account` | Plan, TL Creds balance, today’s API/MCP spend and the platform’s prices (threat unlock, day passes, per-call tools, exports). |
+| `attack_coverage` | Detection coverage against ATT&CK. |
+| `brief` | Start here for "what is happening": current threat posture (0–25 score with its drivers), the debrief’s theme, counts by severity and its threats, most severe first. |
+| `c2` | Command-and-control intelligence: view="summary" (counts and feed health), beacons, configs, operators, watermarks, correlations, timeline, or dns (which domains ride on each beacon IP, with dedicated / mixed /... |
+| `correlate` | Relate threats with evidence. mode="similar": neighbours of one threat (blended score, falls back to attack-flow order for new threats). |
+| `export` | Package intelligence as a file for a SIEM or TIP: kind="stix" (STIX 2.1 bundle for a threat, actor or CVE), "navigator" (ATT&CK Navigator layer for an actor), "detections" (all rules of a threat in one spl/kql/sigma... |
+| `get_actor` | Profile of one threat actor by name or alias: identity, counts, and by default recent threats, tactic profile and arsenal. |
+| `get_cve` | One CVE (or up to 20 comma-separated ids): description, CVSS, EPSS, CISA KEV status with dates, patch availability and linked threats. |
+| `get_cwe` | One weakness class: definition, likelihood of exploit, consequences, mitigations by phase, and the corpus CVEs and threats that carry it (top by KEV then CVSS). |
+| `get_detection` | One detection with its rule text, ready to deploy: metadata, ATT&CK mapping, data sources, false positives and tuning notes. |
+| `get_entity` | Pivot on a malware family, an offensive tool or a named campaign: the threats that involve it, actors, techniques and related indicators. |
+| `get_ioc` | Everything about one exact indicator: threats carrying it, with context, actors behind them, first seen, and a consensus verdict (confidence, rarity, trend). |
+| `get_technique` | One ATT&CK technique (T1190, T1059.001, AML.T0010): authoritative name, tactics, mitigations, data sources and how many corpus threats use it. |
+| `get_threat` | Open a threat, or up to 20 comma-separated ids as free lean rows. |
+| `graph` | Explore the entity graph. view="profile": what surrounds one entity (threat, technique, actor, ioc, cve). |
+| `hunt` | SIEM-style query over the joined observation index — the tool for counts, group-bys and questions that cross types ("threats using tool A that also have IOC type B"). |
+| `list_campaigns` | Campaign rosters. source="named" (default): operations named in reporting, with actors, nations, date range and member threats; each member says whether the campaign name really occurs in that threat (`supported`). |
+| `osint` | Community-sourced signals (public OSINT feed): view="trends" — volume, movers, lead time versus the curated corpus; view="threat" — community sightings for one threat. |
+| `resolve_entity` | Normalise an actor, malware, tool, sector, region, technique or campaign name or alias to its canonical form ("fancy bear" → APT28). |
+| `search_actors` | List threat actors with threat counts, filtered by name fragment, tool, malware family, targeted sector or nation. |
+| `search_cves` | Query the live CVE feed (CVSS, EPSS, CISA KEV, public PoC/exploit, nuclei template). |
+| `search_detections` | Find detection rules (Splunk SPL, Microsoft KQL, Sigma) by keyword, threat, ATT&CK technique, language or severity. |
+| `search_iocs` | Find indicators by value (IP, domain, hash, URL, file name), newest first, grouped per indicator with the threats that carry it. |
+| `search_threats` | Find threats in the catalog. No arguments = newest first. |
+| `status` | Health and freshness in a few hundred bytes: server version, corpus counts, which correlation engines are stale, graph-pipeline state and feed outages. |
+<!--tools:end-->
 
-### `get_actor_intelligence`
-
-**Input:** actor `name` (e.g. `"Lazarus Group"`, `"APT29"`)
-
-**Returns:** comprehensive adversary picture — actor profile, attributed threats, MITRE techniques, IOCs (200 cap), detection rules (100 cap), activity timeline, active C2 infrastructure correlated to the actor, and cross-actor shared entities.
-
-### `get_ioc_intelligence`
-
-**Input:** `ioc_value` (IP, domain, hash, URL)
-
-**Returns:** every threat that touches the IOC + actor attribution + DNS enrichment trail + cross-IOC infrastructure pivots + consensus confidence score across 7 external feeds (Pulsedive, GreyNoise, YARAify, MalwareBazaar, URLScan, VxVault, OpenPhish). The *"I found this in a log — tell me everything"* workflow.
-
-### `get_cve_intelligence`
-
-**Input:** `cve_id` (e.g. `"CVE-2024-3400"`)
-
-**Returns:** CVE detail + linked threats + EPSS exploitation velocity + KEV status + detection coverage % + available attack simulations + first-weaponization timeline.
-
-### `get_mitre_gap_analysis`
-
-**Input:** optional `tactic` filter, `limit`
-
-**Returns:** prioritized list of MITRE techniques without detection coverage, sorted by debt score (threat exposure + KEV count + EPSS). Each entry includes example threats and recommended detection types. Answers *"what should I write detections for next?"*
-
-### `predict_mitre_transitions`
-
-**Input:** `technique_id` (e.g. `"T1566"`), `top_n`, `direction` (`forward` | `reverse`)
-
-**Returns:** ranked next-technique predictions with probability and observation count, plus example threats showing the chain. Built from 4,271 observed transitions across the corpus.
-
-### `generate_c2_blocklist`
-
-**Input:** none.
-
-**Returns:** firewall-ready blocklist of active C2 IPs with country, ASN, version, watermark, and last-seen metadata. Currently tracking Cobalt Strike beacons. For operator clustering call `get_c2`, and for unmasked C2 domains `get_c2_dns_intel`.
-
-## Specialized tools
-
-- **`search_actors`** — Find threat actors by name, alias, nation-state, or motivation.
-- **`get_actor`** — Full actor dossier in a single call.
-- **`get_similar_threats`** — Precomputed-similarity matches by shared TTPs, IOC overlap, and same-actor attribution.
+Legacy names (the 8.x names and the v7 names before them) stay callable and are not listed. Where one has a direct equivalent, the platform answers it through the new tool and says so in the result's `meta.deprecated`.
 
 ## Agent skill
 
@@ -165,62 +191,72 @@ answers honest. Generated from the live catalog, so its tool reference cannot dr
 - **Single file** (paste into any assistant): <https://intel.threadlinqs.com/mcp/skill.md>
 - **Bundle** (`SKILL.md` + `references/`, for Claude Desktop / API skill upload):
   <https://intel.threadlinqs.com/skills/intelthreadlinqs-mcp-skill.zip>
-- Also in this repo under [`skill/`](skill/), and linked from
+- Also in this repo under [`skill-v9/`](skill-v9/), and linked from
   <https://intel.threadlinqs.com/mcp>.
 
-## Prompts — 25 analyst playbooks
+## Prompts — <!--count:prompts-->26<!--/count--> analyst playbooks
 
-Prompts are pre-built workflows that orchestrate the tools for you. Rather than working out which of 81 tools to chain, invoke a playbook and the agent gets an ordered, argument-correct plan. Between them they reach **every tool on the server**, so an agent that only reads `prompts/list` still finds the whole surface.
+Prompts are pre-built workflows that orchestrate the tools for you. Rather than working out which tools to chain, invoke a playbook and the agent gets an ordered, argument-correct plan.
 
-| Playbook | What it does |
+<!--prompts:begin-->
+| prompt | what it does |
 |---|---|
-| `orient` | Start here — catalog, corpus shape, categories, TLQL grammar |
-| `triage_cve` | CVE end-to-end: severity, exploitation, exposure, remediation |
-| `profile_actor` | Actor dossier: TTPs, targeting, attribution confidence |
-| `hunt_ioc` | Indicator → linked threats, blast radius, blocking action |
-| `hunt_corpus` | Aggregate questions in TLQL over the hunt index |
-| `research_question` | Open-ended research via semantic corpus search |
-| `map_detections_to_mitre` | Map a threat's SPL/KQL/Sigma to ATT&CK, flag gaps |
-| `review_detection_gaps` | Highest-value detection debt, ranked by exposure |
-| `write_detection` | Draft a deployable rule grounded in corpus logic |
-| `predict_next_move` | Forecast the next (or preceding) ATT&CK techniques |
-| `explain_link` | Why two threats are linked, with the evidence |
-| `map_campaign` | Campaign members, shared infra, pivotal entities |
-| `review_attribution` | Audit whether an attribution is evidence-backed |
-| `pivot_infrastructure` | Pivot across DNS, hosting and adjacent infrastructure |
-| `malware_dossier` | Profile a malware family or offensive tool |
-| `build_c2_blocklist` | Firewall-ready C2 blocklist with operator clustering |
-| `osint_sweep` | Fold community signal in; surface coverage lead time |
-| `sweep_vulnerabilities` | Triage by exploitability, not CVSS alone |
-| `plan_purple_team` | Simulations paired with the detections they should trip |
-| `export_for_tooling` | STIX 2.1, ATT&CK Navigator, SIEM-ready rules |
-| `bulk_enrich` | Batch a list of threat/CVE ids without N round-trips |
-| `assess_exposure` | Covered vs uncovered for a CVE, actor or technique |
-| `daily_brief` | Today's posture, top new threats, daily theme |
-| `period_review` | Review a day or span from the debrief archive |
-| `platform_status` | Corpus health, engine state, enrichment completeness |
+| `assess_exposure` | What is covered and what is not for a CVE, an actor or a technique. |
+| `build_c2_blocklist` | A firewall-ready list of command-and-control infrastructure. |
+| `bulk_enrich` | Enrich a list of threat or CVE ids in as few calls as possible. |
+| `daily_brief` | What changed today and what to act on first. |
+| `explain_link` | Why two threats are related, with the evidence. |
+| `export_for_tooling` | STIX, ATT&CK Navigator or a rule pack for downstream tools. |
+| `hunt_corpus` | Answer a "how many X by Y" question with one aggregate query. |
+| `hunt_ioc` | Scope one IP, domain, hash or URL. |
+| `investigate_threat` | Full picture of one threat: chain, indicators, detections, neighbours. |
+| `malware_dossier` | Profile a malware family or offensive tool. |
+| `map_campaign` | Members, actors, shared infrastructure and timeline of a campaign. |
+| `map_detections_to_mitre` | Which techniques of a threat have rules, and which do not. |
+| `orient` | What this server holds and how to query it. |
+| `osint_sweep` | Add community sightings to what the corpus knows. |
+| `period_review` | Review one day, or the last two weeks, of intelligence. |
+| `pivot_infrastructure` | Follow an indicator or a threat across DNS and shared hosting. |
+| `plan_purple_team` | Steps to emulate from a threat, and the rule each should trigger. |
+| `platform_status` | Corpus health, engine freshness and feed outages. |
+| `predict_next_move` | Likely next (or previous) techniques after an observed one. |
+| `profile_actor` | Who they are, how they operate, what to watch. |
+| `research_question` | Open-ended question: semantic search, then verify in the records. |
+| `review_attribution` | Is the actor on a threat evidence-backed or only a feed label? |
+| `review_detection_gaps` | Where coverage is weakest against real exposure. |
+| `sweep_vulnerabilities` | Triage the CVE feed by exploitability, not by CVSS alone. |
+| `triage_cve` | Is it exploited, are we covered, what to do. |
+| `write_detection` | Start from an existing rule and tune it for an environment. |
+<!--prompts:end-->
+
+## Privacy, support and data handling
+
+- **What the stdio proxy sends:** your API key (as a Bearer token) and the tool arguments of each call, to `https://intel.threadlinqs.com` only (or the `THREADLINQS_API_URL` you set), with `User-Agent: intelthreadlinqs-mcp/<version>`. It also reads the public catalog (`/mcp/catalog.json`) there, without the key.
+- **What it keeps:** nothing. It stores nothing on disk and sends no telemetry of its own.
+- **Policies:** [Privacy](https://threadlinqs.com/privacy) · [Terms](https://threadlinqs.com/terms).
+- **Support:** open an issue at <https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp/issues>.
 
 ## Full tool catalog
 
-For the complete list of 81 tools with parameters and example invocations, see the [interactive MCP documentation page](https://intel.threadlinqs.com/mcp).
+For the complete list of tools with parameters and example invocations, see the [interactive MCP documentation page](https://intel.threadlinqs.com/mcp).
 
 ## Architecture
 
-- **Transport:** stdio (local subprocess)
-- **Auth:** `THREADLINQS_API_KEY` environment variable (Bearer token to the worker API)
+- **Transport:** stdio (local subprocess), proxying JSON-RPC to the platform's Streamable-HTTP `/mcp`.
+- **Auth:** `THREADLINQS_API_KEY` environment variable (Bearer token to the platform).
 - **Runtime:** Node ≥18
 - **SDK:** `@modelcontextprotocol/sdk@^1.26.0`
-- **Backend:** Cloudflare Workers + D1 (multi-region)
-- **Purple gate:** the server checks the API key's tier at startup and warns if it is missing, invalid, or below Purple/Gold (tier ≥ 3) — it starts regardless so the tool catalog stays introspectable; the gate itself is enforced server-side on every tool call (structured 403 on lapse or under-tier)
-- **Introspection has three tiers** (since 8.1.0): authenticated `tools/list` → the public `/mcp/catalog.json` → a **catalog snapshot bundled in the package**. The first two need network; the third does not, so `tools/list` returns the real catalog even in a fully network-isolated sandbox. Previously that case returned an empty array — not an error, an empty list, which is indistinguishable from a server with no tools, and is why registry scanners indexed this server with zero tools.
+- **Wire:** the proxy speaks MCP `2025-11-25` to the platform (which also serves `2026-07-28`) and to your host, sends `Accept: application/json, text/event-stream`, and parses a JSON or an SSE answer by content type. Retries: 429 and 5xx only, honouring `Retry-After` or `retry_after_s` up to a few seconds, then reporting how long to wait.
+- **Access gate:** enforced server-side on every call (see Access). The server starts without a key so the catalog stays introspectable.
+- **Introspection has three tiers:** authenticated `tools/list` (live, and the only authority on what is listed) → the public `/mcp/catalog.json` → a **catalog snapshot bundled in the package**. The first two need network; the third does not, so `tools/list` returns a real catalog even in a fully network-isolated sandbox instead of an empty array (which is indistinguishable from a server with no tools, and is why registry scanners once indexed this server with zero tools). A tool list that did not come from the live call is stamped in each tool's `_meta` (`threadlinqs/catalog_source`) and logged on stderr.
 
-  Maintainers: regenerate the snapshot with `npm run sync:catalog` **after** deploying the worker, since the worker owns the tool and prompt registries. `npm run test:catalog` fails the build when the snapshot and the live catalog disagree, and it runs on `prepublishOnly`.
+  Maintainers: `npm run sync:catalog -- --local` rebuilds the snapshot, and every count and table in this README, from the v9 package in this repository; `npm run sync:catalog -- --url` does the same from the deployed platform and refuses a catalog whose server version is not this package's. Release order: deploy the platform, `sync:catalog -- --url`, `npm run test:catalog`, publish, then rebuild the `.mcpb`.
 
 ## Links
 
 - 📖 [Interactive docs + try-it](https://intel.threadlinqs.com/mcp)
 - 🔑 [Get an API key](https://intel.threadlinqs.com/profile)
-- 💳 [Pricing](https://threadlinqs.com/landing.html#pricing)
+- 💳 [Pricing](https://threadlinqs.com/#pricing)
 - 🐛 [Issues](https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp/issues)
 - 📜 [Changelog](https://intel.threadlinqs.com/changelog)
 

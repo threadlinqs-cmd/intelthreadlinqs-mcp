@@ -1,23 +1,27 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.threadlinqs/intelthreadlinqs-mcp",
-  "description": "Threadlinqs threat-intelligence MCP — 81 tools: threats, detections, IOCs, actors, C2, MITRE, CVEs",
+  "title": "Threadlinqs Intelligence",
+  "description": "Threat intelligence: threats, detections (SPL/KQL/Sigma), IOCs, CVEs/CWEs, ATT&CK coverage, actors",
+  "websiteUrl": "https://intel.threadlinqs.com/mcp",
   "repository": {
     "url": "https://github.com/threadlinqs-cmd/intelthreadlinqs-mcp",
-    "source": "github"
+    "source": "github",
+    "id": "1305100550"
   },
-  "version": "8.2.1",
+  "version": "9.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "intelthreadlinqs-mcp",
-      "version": "8.2.1",
+      "version": "9.0.0",
+      "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "description": "Threadlinqs API key (Purple or Gold tier, tl_...) — get one at https://intel.threadlinqs.com/profile",
+          "description": "Threadlinqs API key (tl_...; Purple and Gold have full access, a free account has a daily allowance of calls) — get one at https://intel.threadlinqs.com/profile",
           "isRequired": true,
           "format": "string",
           "isSecret": true,
@@ -29,6 +33,29 @@
           "format": "string",
           "isSecret": false,
           "name": "THREADLINQS_API_URL"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://intel.threadlinqs.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {api_key}",
+          "description": "A tl_ API key (Purple and Gold have full access, a free account has a daily allowance of calls), or an OAuth 2.1 access token (see https://intel.threadlinqs.com/auth.md).",
+          "isRequired": true,
+          "isSecret": true,
+          "variables": {
+            "api_key": {
+              "description": "tl_ API key from your Threadlinqs profile",
+              "isRequired": true,
+              "isSecret": true,
+              "format": "string"
+            }
+          }
         }
       ]
     }

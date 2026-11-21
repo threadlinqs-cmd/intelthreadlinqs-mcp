@@ -3,8 +3,9 @@
 Tool names here are bare. Hosts may prefix them (`mcp__threadlinqs-intel__search_threats`)
 — match by suffix.
 
-Every tool call needs tier ≥ 3 (Purple/Gold). `-32001` = missing/invalid key, `-32002` =
-authenticated but under-tier. Both terminal — surface the upgrade path, do not retry.
+Purple/Gold have full access; a free account gets 2 calls a day (fan-out tools excluded). `-32001` =
+missing/invalid key, `-32002` = authenticated but refused, `free_mcp_limit_reached` /
+`free_mcp_tool_excluded` = free-plan limits. All terminal — surface the upgrade path, do not retry.
 
 ## The single most misleading failure mode on this server
 
@@ -136,8 +137,9 @@ The finer **`ioc_type`** vocabulary is returned in results and is filterable thr
 `hash` exists *alongside* `sha256`/`md5`/`sha1` — a legacy bucket. "All hashes" must union
 all four.
 
-`search_iocs` also **does not honor `offset`** (the response says `has_more` but paging is
-not implemented). Narrow with a more specific `value` substring instead of paging.
+`search_iocs` matches `value` as a case-insensitive **prefix** by default (`evil.com` does not
+find `login.evil.com`); pass `match="substring"` for a fragment from the middle of a value, or
+`match="exact"` for one whole value. It pages newest first with `offset`/`cursor`.
 
 Community indicators use a different, genuinely enumerated set —
 `search_xscan_indicators.type`: `ip` · `domain` · `url` · `sha256` · `md5`. Nothing else.
@@ -374,7 +376,7 @@ probably does not.
 `get_community_campaigns` cluster labels are **upstream AI output**, not a Threadlinqs
 assessment — attribute them to the community feed explicitly. On an upstream failure the
 response carries `community_error`: report "community feed unavailable", never "no campaigns
-found". The layer is heavily concentrated (~73% of recent submissions from one reporter). It
+found". The layer is concentrated in a few reporters (read the live reporter_concentration; never quote a fixed share). It
 corroborates. It never attributes.
 
 ## Quick reference — guess-safe vs guess-fatal
@@ -393,13 +395,11 @@ filter value was wrong — go call the list tool.
 
 ## Response cap
 
-Every tool response is capped at **90,000 characters** and appends:
+Every tool response is capped at **90,000 characters**. An oversized result stays valid JSON: whole
+elements are dropped from the end of the largest list and the object gains
+`truncated: true`, `truncation_note`, `returned` and `total`.
 
-```
-... [truncated: response exceeded 90000 chars — narrow your query
-```
-
-That marker means the payload is incomplete and **any count or "no results for X" you derive
+`truncated: true` means the payload is incomplete and **any count or "no results for X" you derive
 from it is unsound**. Do not retry unchanged; do not summarize the fragment as if it were
 whole. Narrow instead: add a filter from the vocabularies above, lower `limit`, switch to a
 composite (`get_ioc_intelligence` over `search_iocs`, `get_cve_intelligence` over `get_cve` +
@@ -407,5 +407,5 @@ velocity + detections), or use `hunt … | stats count by <field>` so the server
 instead of shipping you rows to count.
 
 Paging is honored on `search_threats`, `get_recent_threats`, `get_detections`,
-`search_xscan_indicators`. It is **not** honored on `search_iocs`, `list_debriefs`,
+`search_xscan_indicators`, `search_iocs`. It is **not** honored on `list_debriefs`,
 `search_actors` — on those, narrow rather than page.
