@@ -7,6 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/intelthreadlinqs-mcp.svg)](https://www.npmjs.com/package/intelthreadlinqs-mcp)
 [![Node](https://img.shields.io/node/v/intelthreadlinqs-mcp.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Threadlinqs Intelligence MCP connector](https://glama.ai/mcp/connectors/com.threadlinqs/intelthreadlinqs-mcp/badges/score.svg)](https://glama.ai/mcp/connectors/com.threadlinqs/intelthreadlinqs-mcp)
 
 ## What changed in 9.0.0
 
